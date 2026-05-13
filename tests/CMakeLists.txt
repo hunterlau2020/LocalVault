@@ -95,6 +95,12 @@ set_target_properties(testautotype PROPERTIES ENABLE_EXPORTS ON)
 add_unit_test(NAME testentry SOURCES TestEntry.cpp
         LIBS ${TEST_LIBRARIES})
 
+add_unit_test(NAME testentrysnapshot SOURCES TestEntrySnapshot.cpp
+        LIBS ${TEST_LIBRARIES})
+
+add_unit_test(NAME testsyncengine SOURCES TestSyncEngine.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testmerge SOURCES TestMerge.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 

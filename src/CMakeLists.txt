@@ -29,6 +29,10 @@ set(core_SOURCES
         core/Entry.cpp
         core/EntryAttachments.cpp
         core/EntryAttributes.cpp
+        core/EntryDiff.cpp
+        core/EntrySnapshot.cpp
+        core/SyncData.h
+        core/SyncEngine.cpp
         core/EntrySearcher.cpp
         core/FileWatcher.cpp
         core/Group.cpp

@@ -42,7 +42,9 @@ set(cli_SOURCES
         Remove.cpp
         RemoveGroup.cpp
         Search.cpp
-        Show.cpp)
+        Show.cpp
+        ShowMetadata.cpp
+        SyncCommand.cpp)
 
 add_library(cli STATIC ${cli_SOURCES})
 target_link_libraries(cli ${ZXCVBN_LIBRARIES} Qt6::Core)

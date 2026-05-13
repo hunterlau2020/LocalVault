@@ -42,6 +42,8 @@
 #include "RemoveGroup.h"
 #include "Search.h"
 #include "Show.h"
+#include "ShowMetadata.h"
+#include "SyncCommand.h"
 #include "Utils.h"
 
 #include <QCommandLineParser>
@@ -171,6 +173,7 @@ namespace Commands
         s_commands.insert(QStringLiteral("db-create"), QSharedPointer<Command>(new DatabaseCreate()));
         s_commands.insert(QStringLiteral("db-edit"), QSharedPointer<Command>(new DatabaseEdit()));
         s_commands.insert(QStringLiteral("db-info"), QSharedPointer<Command>(new DatabaseInfo()));
+        s_commands.insert(QStringLiteral("db-show-metadata"), QSharedPointer<Command>(new ShowMetadata()));
         s_commands.insert(QStringLiteral("diceware"), QSharedPointer<Command>(new Diceware()));
         s_commands.insert(QStringLiteral("edit"), QSharedPointer<Command>(new Edit()));
         s_commands.insert(QStringLiteral("estimate"), QSharedPointer<Command>(new Estimate()));
@@ -185,6 +188,7 @@ namespace Commands
         s_commands.insert(QStringLiteral("rmdir"), QSharedPointer<Command>(new RemoveGroup()));
         s_commands.insert(QStringLiteral("search"), QSharedPointer<Command>(new Search()));
         s_commands.insert(QStringLiteral("show"), QSharedPointer<Command>(new Show()));
+        s_commands.insert(QStringLiteral("sync"), QSharedPointer<Command>(new SyncCommand()));
 
         if (interactive) {
             s_commands.insert(QStringLiteral("exit"), QSharedPointer<Command>(new Exit("exit")));
