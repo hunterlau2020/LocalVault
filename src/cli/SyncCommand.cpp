@@ -19,6 +19,7 @@
 
 #include "Command.h"
 #include "Utils.h"
+#include "core/ConflictResolver.h"
 #include "core/Database.h"
 #include "core/SyncEngine.h"
 
@@ -46,6 +47,13 @@ SyncCommand::SyncCommand()
         QStringList() << QStringLiteral("remote-key-file"),
         QObject::tr("Key file for the remote database."),
         QStringLiteral("path")));
+
+    // Conflict resolution options
+    options.append(QCommandLineOption(
+        QStringList() << QStringLiteral("resolve"),
+        QObject::tr("Automatically resolve conflicts using the given strategy: "
+                     "keep-local, keep-remote, or create-copy."),
+        QStringLiteral("strategy")));
 }
 
 int SyncCommand::execute(const QStringList& arguments)
@@ -102,6 +110,7 @@ int SyncCommand::execute(const QStringList& arguments)
     out << QObject::tr("Analyzing differences...") << Qt::endl;
 
     SyncEngine engine;
+    engine.setMetadataEngine(localDb);
     SyncResult result = engine.analyzeDiffs(localDb, remoteDb);
 
     if (!result.success) {
@@ -111,14 +120,57 @@ int SyncCommand::execute(const QStringList& arguments)
 
     out << result.summaryText() << Qt::endl;
 
-    // --- Apply merges (if no conflicts) --------------------------------------
+    // --- Handle conflicts ---------------------------------------------------
     if (result.hasConflicts()) {
-        out << QObject::tr("Conflicts detected — skipping auto-merge.") << Qt::endl;
-        out << QObject::tr("Resolve conflicts manually and re-run sync.") << Qt::endl;
-        return EXIT_SUCCESS;
+        const QString resolveStrategy = parser->value(QStringLiteral("resolve"));
+        if (resolveStrategy.isEmpty()) {
+            out << QObject::tr("Conflicts detected — skipping auto-merge.") << Qt::endl;
+            out << QObject::tr("Use --resolve to auto-resolve (keep-local, keep-remote, or create-copy).") << Qt::endl;
+            return EXIT_SUCCESS;
+        }
+
+        // Parse the resolution strategy
+        ConflictResolution strategy;
+        if (resolveStrategy == QStringLiteral("keep-local")) {
+            strategy = ConflictResolution::KeepLocal;
+        } else if (resolveStrategy == QStringLiteral("keep-remote")) {
+            strategy = ConflictResolution::KeepRemote;
+        } else if (resolveStrategy == QStringLiteral("create-copy")) {
+            strategy = ConflictResolution::CreateCopy;
+        } else {
+            err << QObject::tr("Unknown resolution strategy '%1'. Use keep-local, keep-remote, or create-copy.").arg(resolveStrategy) << Qt::endl;
+            return EXIT_FAILURE;
+        }
+
+        out << QObject::tr("Resolving conflicts (%1 strategy)...").arg(resolveStrategy) << Qt::endl;
+
+        ConflictResolverService resolver(localDb, engine.metadataEngine());
+        QList<ConflictResolutionResult> results = resolver.resolveAll(result, strategy);
+
+        int failures = 0;
+        int copies = 0;
+        for (const auto& res : results) {
+            if (!res.success) {
+                ++failures;
+                err << QObject::tr("  Failed to resolve conflict: %1").arg(res.errorMessage) << Qt::endl;
+            }
+            if (!res.createdCopyEntryId.isNull()) {
+                ++copies;
+            }
+        }
+
+        if (failures > 0) {
+            err << QObject::tr("Conflict resolution completed with %1 failure(s).").arg(failures) << Qt::endl;
+            return EXIT_FAILURE;
+        }
+
+        out << QObject::tr("All %1 conflict(s) resolved successfully.").arg(results.size()) << Qt::endl;
+        if (copies > 0) {
+            out << QObject::tr("  %1 conflict copy/copies created.").arg(copies) << Qt::endl;
+        }
     }
 
-    if (result.updatedCount == 0 && result.addedCount == 0) {
+    if (result.updatedCount == 0 && result.addedCount == 0 && !result.hasConflicts()) {
         out << QObject::tr("Nothing to merge.") << Qt::endl;
         return EXIT_SUCCESS;
     }

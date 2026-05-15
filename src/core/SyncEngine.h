@@ -23,6 +23,7 @@
 #include <QUuid>
 
 #include "core/SyncData.h"
+#include "core/SyncMetadata.h"
 
 class Database;
 class Entry;
@@ -33,14 +34,25 @@ struct EntrySnapshot;
  *
  *   analyzeDiffs() → classify entries → applyMerges() → SyncResult
  *
- * V1 uses lastModificationTime as a heuristic for change detection;
- * this will be replaced by version vectors once the Sync Metadata Engine
- * (Module 3) is integrated.
+ * Uses version vectors from SyncMetadataEngine for causality tracking.
+ * Falls back to lastModificationTime when VVs are absent (legacy entries).
  */
 class SyncEngine
 {
 public:
     SyncEngine() = default;
+
+    /**
+     * Initialize the metadata engine with the local database.
+     * Must be called before analyzeDiffs() if the sync metadata engine
+     * should be used for version-vector-based classification.
+     */
+    void setMetadataEngine(QSharedPointer<Database> db);
+
+    /**
+     * Access the internal SyncMetadataEngine (e.g. for ConflictResolverService).
+     */
+    SyncMetadataEngine* metadataEngine();
 
     /**
      * Analyze differences between two databases and produce a SyncResult
@@ -81,6 +93,9 @@ private:
 
     /** Field-level merge: copy values only for \p fields from \p src into \p dst. */
     bool applyFieldValues(Entry* dst, const Entry* src, const QStringList& fields);
+
+    /** Sync metadata engine for version-vector-based classification. */
+    SyncMetadataEngine m_metadataEngine;
 };
 
 #endif // KEEPASSXC_SYNCENGINE_H

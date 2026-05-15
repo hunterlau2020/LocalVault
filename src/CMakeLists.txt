@@ -32,7 +32,9 @@ set(core_SOURCES
         core/EntryDiff.cpp
         core/EntrySnapshot.cpp
         core/SyncData.h
+        core/SyncMetadata.cpp
         core/SyncEngine.cpp
+        core/ConflictResolver.cpp
         core/EntrySearcher.cpp
         core/FileWatcher.cpp
         core/Group.cpp

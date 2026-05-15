@@ -206,6 +206,10 @@ public:
         Messages_NoLegacyKeyFileWarning,
         Messages_HidePreReleaseWarning,
 
+        // Sync
+        Sync_LocalDeviceId,
+        Sync_LocalDeviceName,
+
         // Special internal value
         Deleted
     };

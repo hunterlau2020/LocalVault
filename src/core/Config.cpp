@@ -231,7 +231,12 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
 
     // Messages
     {Config::Messages_NoLegacyKeyFileWarning, {QS("Messages/NoLegacyKeyFileWarning"), Roaming, false}},
-    {Config::Messages_HidePreReleaseWarning, {QS("Messages/HidePreReleaseWarning"), Local, {}}}};
+    {Config::Messages_HidePreReleaseWarning, {QS("Messages/HidePreReleaseWarning"), Local, {}}},
+
+    // Sync
+    {Config::Sync_LocalDeviceId, {QS("Sync/LocalDeviceId"), Local, {}}},
+    {Config::Sync_LocalDeviceName, {QS("Sync/LocalDeviceName"), Local, {}}},
+};
 
 // clang-format on
 

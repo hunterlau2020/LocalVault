@@ -43,6 +43,20 @@ static QStringList diffFieldNames(const EntryDiff& diff)
 }
 
 // ---------------------------------------------------------------------------
+// Metadata engine setup
+// ---------------------------------------------------------------------------
+
+void SyncEngine::setMetadataEngine(QSharedPointer<Database> db)
+{
+    m_metadataEngine.setDatabase(db);
+}
+
+SyncMetadataEngine* SyncEngine::metadataEngine()
+{
+    return &m_metadataEngine;
+}
+
+// ---------------------------------------------------------------------------
 // Indexing
 // ---------------------------------------------------------------------------
 
@@ -115,30 +129,55 @@ SyncOperation SyncEngine::classifyEntry(Entry* localEntry, Entry* remoteEntry)
         return op;
     }
 
-    // --- Heuristic: last modification time ----------------------------------
-    // NOTE: Replaced by version-vector comparison once Metadata Engine lands.
-    const QDateTime localTime = localEntry->timeInfo().lastModificationTime();
-    const QDateTime remoteTime = remoteEntry->timeInfo().lastModificationTime();
+    // --- Try version vector comparison first ----------------------------------
+    if (m_metadataEngine.hasDatabase()) {
+        const VersionVector localVV = m_metadataEngine.getEntryVersionVector(localEntry);
+        const VersionVector remoteVV = m_metadataEngine.getEntryVersionVector(remoteEntry);
 
-    // Tolerate 1-second skew for file-system timestamp precision
-    const qint64 diffMs = localTime.msecsTo(remoteTime);
-    constexpr qint64 SKEW_MS = 1000;
+        if (!localVV.isEmpty() || !remoteVV.isEmpty()) {
+            const auto vvResult = SyncMetadataEngine::compareVersionVectors(localVV, remoteVV);
 
-    if (diffMs < -SKEW_MS) {
-        // Local is significantly newer → no update needed
-        op.type = SyncOperation::Skipped;
-        return op;
+            switch (vvResult) {
+            case VVCompareResult::Equal:
+                // VVs match but entries differ → concurrent modifications without
+                // proper VV increment (unusual); treat as conflict.
+                break;
+            case VVCompareResult::LocalDominates:
+                op.type = SyncOperation::Skipped;
+                return op;
+            case VVCompareResult::RemoteDominates:
+                op.type = SyncOperation::DirectApply;
+                op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
+                op.changedFields = totalDiff;
+                return op;
+            case VVCompareResult::Concurrent:
+                break; // fall through to field-overlap check
+            }
+        }
     }
 
-    if (diffMs > SKEW_MS) {
-        // Remote is significantly newer → take remote wholesale
-        op.type = SyncOperation::DirectApply;
-        op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
-        op.changedFields = totalDiff;
-        return op;
+    // --- Fallback: last modification time (legacy entries without VVs) ---------
+    {
+        const QDateTime localTime = localEntry->timeInfo().lastModificationTime();
+        const QDateTime remoteTime = remoteEntry->timeInfo().lastModificationTime();
+
+        const qint64 diffMs = localTime.msecsTo(remoteTime);
+        constexpr qint64 SKEW_MS = 1000;
+
+        if (diffMs < -SKEW_MS) {
+            op.type = SyncOperation::Skipped;
+            return op;
+        }
+
+        if (diffMs > SKEW_MS) {
+            op.type = SyncOperation::DirectApply;
+            op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
+            op.changedFields = totalDiff;
+            return op;
+        }
     }
 
-    // --- Concurrent (same time window) — check field overlap ----------------
+    // --- Concurrent (same time window or VVs concurrent) — check field overlap -
     //
     // Without a sync baseline we treat ALL differing fields as concurrent.
     // Partition: localSide = fields where local has "its value" (== localSnap)
@@ -330,12 +369,38 @@ bool SyncEngine::applyMerges(const SyncResult& result, QSharedPointer<Database> 
                 Entry* cloned = op.sourceEntry->clone(Entry::CloneNewUuid | Entry::CloneResetTimeInfo | Entry::CloneIncludeHistory);
                 cloned->setUuid(op.entryId);
                 local->rootGroup()->addEntry(cloned);
+
+                // Initialize version vector for the new entry
+                if (m_metadataEngine.hasDatabase()) {
+                    m_metadataEngine.incrementEntryCounter(cloned);
+                }
             } else if (remote && remote->rootGroup()->findEntryByUuid(op.entryId)) {
                 // Entry exists in both — remote version wins
                 copyEntryValues(localEntry, op.sourceEntry.data());
+
+                // Advance local version vector after accepting remote changes
+                if (m_metadataEngine.hasDatabase()) {
+                    m_metadataEngine.incrementEntryCounter(localEntry);
+                }
             }
             // Local Only entries: no action needed
         }
+
+        if (op.type == SyncOperation::AutoMerge) {
+            if (existsLocally && op.sourceEntry) {
+                applyFieldValues(localEntry, op.sourceEntry.data(), op.changedFields);
+
+                // Advance local version vector after merging
+                if (m_metadataEngine.hasDatabase()) {
+                    m_metadataEngine.incrementEntryCounter(localEntry);
+                }
+            }
+        }
+    }
+
+    // Persist any metadata changes (tombstones, baselines, etc.)
+    if (m_metadataEngine.hasDatabase()) {
+        m_metadataEngine.saveToDatabase();
     }
 
     return allOk;

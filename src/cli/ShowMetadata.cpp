@@ -19,6 +19,7 @@
 
 #include "Utils.h"
 #include "core/Metadata.h"
+#include "core/SyncMetadata.h"
 
 #include <QCommandLineParser>
 #include <QJsonArray>
@@ -27,7 +28,7 @@
 
 #include <QDateTime>
 
-constexpr const char* SYNC_METADATA_KEY = "KPXC_SYNC_METADATA";
+static const QString SYNC_METADATA_KEY = SyncMetadataEngine::DB_METADATA_KEY;
 
 ShowMetadata::ShowMetadata()
 {

@@ -101,6 +101,12 @@ add_unit_test(NAME testentrysnapshot SOURCES TestEntrySnapshot.cpp
 add_unit_test(NAME testsyncengine SOURCES TestSyncEngine.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
+add_unit_test(NAME testsyncmetadata SOURCES TestSyncMetadata.cpp
+        LIBS ${TEST_LIBRARIES})
+
+add_unit_test(NAME testconflictresolver SOURCES TestConflictResolver.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testmerge SOURCES TestMerge.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
