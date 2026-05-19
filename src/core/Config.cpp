@@ -236,6 +236,9 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     // Sync
     {Config::Sync_LocalDeviceId, {QS("Sync/LocalDeviceId"), Local, {}}},
     {Config::Sync_LocalDeviceName, {QS("Sync/LocalDeviceName"), Local, {}}},
+
+    // Snapshot
+    {Config::Snapshot_Directory, {QS("Snapshot/Directory"), Local, {}}},
 };
 
 // clang-format on

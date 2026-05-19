@@ -210,6 +210,9 @@ public:
         Sync_LocalDeviceId,
         Sync_LocalDeviceName,
 
+        // Snapshot
+        Snapshot_Directory,
+
         // Special internal value
         Deleted
     };

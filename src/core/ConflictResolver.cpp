@@ -22,6 +22,7 @@
 #include "core/EntryAttachments.h"
 #include "core/EntryAttributes.h"
 #include "core/Group.h"
+#include "core/SnapshotService.h"
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -150,6 +151,16 @@ ConflictResolverService::resolveAll(const SyncResult& result, ConflictResolution
 {
     QList<ConflictResolutionResult> results;
 
+    if (result.conflictCount == 0) {
+        return results;
+    }
+
+    // Auto-snapshot before batch resolve (best-effort)
+    {
+        SnapshotService ss(m_localDb);
+        ss.createSnapshot(QStringLiteral("conflict_batch_resolve"));
+    }
+
     for (const auto& op : result.operations) {
         if (op.type != SyncOperation::Conflict) {
             continue;
@@ -171,6 +182,16 @@ ConflictResolverService::resolveAll(const QList<ConflictItem>& items,
                                      const QList<ConflictResolutionCommand>& commands)
 {
     QList<ConflictResolutionResult> results;
+
+    if (items.isEmpty()) {
+        return results;
+    }
+
+    // Auto-snapshot before batch resolve (best-effort)
+    {
+        SnapshotService ss(m_localDb);
+        ss.createSnapshot(QStringLiteral("conflict_batch_resolve"));
+    }
 
     const int count = qMin(items.size(), commands.size());
     for (int i = 0; i < count; ++i) {
@@ -243,6 +264,25 @@ bool ConflictResolverService::resolveManualMerge(Entry* localEntry,
 }
 
 // ---------------------------------------------------------------------------
+// Helpers — file-local (must come before resolveCreateCopy)
+// ---------------------------------------------------------------------------
+
+/** Recursively search the group tree for the group containing \p entry. */
+static Group* findEntryGroup(Group* root, Entry* entry)
+{
+    if (root->entries().contains(entry)) {
+        return root;
+    }
+    for (auto* child : root->children()) {
+        Group* found = findEntryGroup(child, entry);
+        if (found) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
 // Strategy: CreateCopy
 // ---------------------------------------------------------------------------
 
@@ -255,9 +295,10 @@ Entry* ConflictResolverService::resolveCreateCopy(Entry* localEntry, const Confl
     // Clone the remote entry with a new UUID, reset timestamps, include history
     Entry* copy = item.remoteEntry->clone(Entry::CloneNewUuid | Entry::CloneResetTimeInfo | Entry::CloneIncludeHistory | Entry::CloneRenameTitle);
 
-    // Place the copy in the same group as the local entry
-    // Fall back to root group if entry has no parent (defensive).
-    Group* parentGroup = localEntry->group();
+    // Place the copy in the same group as the local entry.
+    // NOTE: localEntry->group() cannot be relied upon — Group::addEntry() does
+    // not set Entry::m_group.  Instead, search the group tree.
+    Group* parentGroup = findEntryGroup(m_localDb->rootGroup(), localEntry);
     if (!parentGroup) {
         parentGroup = m_localDb->rootGroup();
     }
@@ -281,25 +322,31 @@ void ConflictResolverService::finalizeResolution(Entry* localEntry, const Confli
         return;
     }
 
-    // Advance local VV counter
-    VersionVector mergedVV = m_metadataEngine->incrementEntryCounter(localEntry);
+    // Get the pre-resolution local VV from the conflict item clone.
+    // KeepRemote calls copyDataFrom() which overwrites CustomData including
+    // the entry's version vector, so reading VV from localEntry after
+    // resolution would give the remote VV, not the local one.
+    VersionVector localVV = m_metadataEngine->getEntryVersionVector(item.localEntry.data());
 
-    // Merge remote VV into local VV so both devices' counters are reflected
+    // Advance local counter
+    const QString myId = m_metadataEngine->currentDeviceId();
+    if (!myId.isEmpty()) {
+        localVV[myId] = localVV.value(myId, 0) + 1;
+    }
+
+    // Merge remote VV so both devices' counters are reflected
     if (item.remoteEntry) {
         const VersionVector remoteVV = m_metadataEngine->getEntryVersionVector(item.remoteEntry.data());
-        mergedVV = SyncMetadataEngine::mergeVersionVectors(mergedVV, remoteVV);
-        m_metadataEngine->setEntryVersionVector(localEntry, mergedVV);
+        localVV = SyncMetadataEngine::mergeVersionVectors(localVV, remoteVV);
     }
+
+    m_metadataEngine->setEntryVersionVector(localEntry, localVV);
 
     // Mark the conflict record as resolved
     if (!item.conflictId.isNull()) {
         m_metadataEngine->markConflictResolved(item.conflictId);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 bool ConflictResolverService::validateManualMerge(const ConflictItem& item,
                                                     const QMap<QString, QString>& mergedValues,
@@ -330,7 +377,7 @@ void ConflictResolverService::setFieldValue(Entry* entry, const QString& field, 
         entry->setNotes(value);
     } else if (field.startsWith(QStringLiteral("custom_fields."))) {
         const QString key = field.mid(QStringLiteral("custom_fields.").length());
-        entry->setDefaultAttribute(key, value);
+        entry->attributes()->set(key, value);
     } else if (field.startsWith(QStringLiteral("attachment."))) {
         // Binary data not supported via string value — skip in ManualMerge
     } else if (field == QStringLiteral("icon")) {

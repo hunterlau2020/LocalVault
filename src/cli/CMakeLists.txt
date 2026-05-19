@@ -44,7 +44,9 @@ set(cli_SOURCES
         Search.cpp
         Show.cpp
         ShowMetadata.cpp
-        SyncCommand.cpp)
+        SnapshotCommand.cpp
+        SyncCommand.cpp
+        DbCleanupCommand.cpp)
 
 add_library(cli STATIC ${cli_SOURCES})
 target_link_libraries(cli ${ZXCVBN_LIBRARIES} Qt6::Core)

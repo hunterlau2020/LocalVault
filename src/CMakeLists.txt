@@ -39,7 +39,9 @@ set(core_SOURCES
         core/FileWatcher.cpp
         core/Group.cpp
         core/HibpOffline.cpp
+        core/HistoryRetentionService.cpp
         core/InactivityTimer.cpp
+        core/LifecycleManager.cpp
         core/Merger.cpp
         core/Metadata.cpp
         core/ModifiableObject.cpp
@@ -48,6 +50,7 @@ set(core_SOURCES
         core/PassphraseGenerator.cpp
         core/Resources.cpp
         core/SignalMultiplexer.cpp
+        core/SnapshotService.cpp
         core/TimeDelta.cpp
         core/TimeInfo.cpp
         core/Tools.cpp

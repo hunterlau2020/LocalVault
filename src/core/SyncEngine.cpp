@@ -24,6 +24,7 @@
 #include "core/EntryDiff.h"
 #include "core/EntrySnapshot.h"
 #include "core/Group.h"
+#include "core/SnapshotService.h"
 
 #include <QDateTime>
 
@@ -219,6 +220,13 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
         result.success = false;
         result.errorMessage = QStringLiteral("Invalid database pointer(s)");
         return result;
+    }
+
+    // Auto-snapshot before sync (best-effort: snapshot creation failure
+    // does not block the sync itself).
+    {
+        SnapshotService ss(local);
+        ss.createSnapshot(QStringLiteral("sync_pre"));
     }
 
     const auto localEntries = indexEntries(local);

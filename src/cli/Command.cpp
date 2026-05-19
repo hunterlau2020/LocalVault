@@ -44,6 +44,8 @@
 #include "Show.h"
 #include "ShowMetadata.h"
 #include "SyncCommand.h"
+#include "SnapshotCommand.h"
+#include "DbCleanupCommand.h"
 #include "Utils.h"
 
 #include <QCommandLineParser>
@@ -189,6 +191,8 @@ namespace Commands
         s_commands.insert(QStringLiteral("search"), QSharedPointer<Command>(new Search()));
         s_commands.insert(QStringLiteral("show"), QSharedPointer<Command>(new Show()));
         s_commands.insert(QStringLiteral("sync"), QSharedPointer<Command>(new SyncCommand()));
+        s_commands.insert(QStringLiteral("snapshot"), QSharedPointer<Command>(new SnapshotCommand()));
+        s_commands.insert(QStringLiteral("db-cleanup"), QSharedPointer<Command>(new DbCleanupCommand()));
 
         if (interactive) {
             s_commands.insert(QStringLiteral("exit"), QSharedPointer<Command>(new Exit("exit")));

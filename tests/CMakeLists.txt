@@ -107,6 +107,12 @@ add_unit_test(NAME testsyncmetadata SOURCES TestSyncMetadata.cpp
 add_unit_test(NAME testconflictresolver SOURCES TestConflictResolver.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
+add_unit_test(NAME testsnapshotservice SOURCES TestSnapshotService.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
+add_unit_test(NAME testlifecyclemanager SOURCES TestLifecycleManager.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testmerge SOURCES TestMerge.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
