@@ -393,6 +393,34 @@ add_executable(${PROGNAME} main.cpp)
 target_link_libraries(${PROGNAME} keepassxc_gui)
 set_target_properties(${PROGNAME} PROPERTIES ENABLE_EXPORTS ON)
 
+if(WIN32 AND KPXC_STATIC_BUILD)
+    # Static Qt on Windows requires explicit plugin linking
+    target_link_libraries(${PROGNAME}
+        # Platform plugin
+        Qt6::QWindowsIntegrationPlugin
+        # Image format plugins (needed for icons, favicons, etc.)
+        Qt6::QGifPlugin
+        Qt6::QICOPlugin
+        Qt6::QJpegPlugin
+        Qt6::QTgaPlugin
+        Qt6::QWbmpPlugin
+        # SVG icon engine plugin
+        Qt6::QSvgPlugin
+        # Additional Windows system libraries required by static Qt
+        opengl32.lib
+        glu32.lib
+        dwmapi.lib
+        imm32.lib
+        version.lib
+        netapi32.lib
+        userenv.lib
+        winmm.lib
+        setupapi.lib
+        dcomp.lib
+        uxtheme.lib
+    )
+endif()
+
 if(WIN32)
     set_target_properties(${PROGNAME} PROPERTIES WIN32_EXECUTABLE ON)
     include(GenerateProductVersion)
@@ -459,9 +487,29 @@ install(TARGETS ${PROGNAME}
 
 # Windows Installer Definition
 if(WIN32)
-    # Deploy used libraries into build directory for debugging
-    add_custom_command(TARGET ${PROGNAME} POST_BUILD
-        COMMAND ${WINDEPLOYQT_EXE} --dir $<TARGET_FILE_DIR:${PROGNAME}> $<TARGET_FILE:${PROGNAME}>)
+    if(KPXC_STATIC_BUILD)
+        # Static build: no windeployqt needed; ensure CA cert bundle is available
+        if(KPXC_FEATURE_NETWORK)
+            find_file(SSL_CA_BUNDLE ca-bundle.crt
+                PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/ssl/certs"
+                NO_DEFAULT_PATH)
+            if(NOT SSL_CA_BUNDLE)
+                file(DOWNLOAD "https://curl.se/ca/cacert.pem"
+                    "${CMAKE_BINARY_DIR}/ca-bundle.crt" TLS_VERIFY ON)
+                set(SSL_CA_BUNDLE "${CMAKE_BINARY_DIR}/ca-bundle.crt")
+            endif()
+            add_custom_command(TARGET ${PROGNAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:${PROGNAME}>/ssl/certs"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${SSL_CA_BUNDLE}"
+                    "$<TARGET_FILE_DIR:${PROGNAME}>/ssl/certs/ca-bundle.crt")
+        endif()
+    else()
+        # Deploy used libraries into build directory for debugging
+        add_custom_command(TARGET ${PROGNAME} POST_BUILD
+            COMMAND ${WINDEPLOYQT_EXE} --dir $<TARGET_FILE_DIR:${PROGNAME}> $<TARGET_FILE:${PROGNAME}>)
+    endif()
 
     # We have to copy the license file in the configuration phase.
     # CMake checks that CPACK_RESOURCE_FILE_LICENSE actually exists and
@@ -516,7 +564,18 @@ if(WIN32)
     set(CPACK_WIX_EXTENSIONS "WixUtilExtension.dll")
     include(CPack)
 
-    if(NOT VCPKG_INSTALLED_DIR)
+    if(KPXC_STATIC_BUILD)
+        # Static build: no DLLs to deploy; only install CA cert bundle
+        find_file(SSL_CA_BUNDLE ca-bundle.crt
+            PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/ssl/certs"
+            NO_DEFAULT_PATH)
+        if(SSL_CA_BUNDLE)
+            install(FILES ${SSL_CA_BUNDLE} DESTINATION "ssl/certs")
+        else()
+            file(DOWNLOAD "https://curl.se/ca/cacert.pem" "${CMAKE_BINARY_DIR}/ca-bundle.crt" TLS_VERIFY ON)
+            install(FILES "${CMAKE_BINARY_DIR}/ca-bundle.crt" DESTINATION "ssl/certs")
+        endif()
+    elseif(NOT VCPKG_INSTALLED_DIR)
         install(CODE "set(gp_tool \"objdump\")" COMPONENT Runtime)
 
         # Deploy all 3rd party library dependencies first
@@ -548,15 +607,15 @@ if(WIN32)
 
             install(FILES ${OPENSSL_DLL} ${CRYPTO_DLL} DESTINATION ".")
         endif()
-    endif()
 
-    # install CA cert chains
-    find_file(SSL_CA_BUNDLE ca-bundle.crt PATHS "${Qt6_PREFIX}/ssl/certs")
-    if(SSL_CA_BUNDLE)
-        install(FILES ${SSL_CA_BUNDLE} DESTINATION "ssl/certs")
-    else()
-        file(DOWNLOAD "https://curl.se/ca/cacert.pem" "${CMAKE_BINARY_DIR}/ca-bundle.crt" TLS_VERIFY ON)
-        install(FILES "${CMAKE_BINARY_DIR}/ca-bundle.crt" DESTINATION "ssl/certs")
+        # install CA cert chains
+        find_file(SSL_CA_BUNDLE ca-bundle.crt PATHS "${Qt6_PREFIX}/ssl/certs")
+        if(SSL_CA_BUNDLE)
+            install(FILES ${SSL_CA_BUNDLE} DESTINATION "ssl/certs")
+        else()
+            file(DOWNLOAD "https://curl.se/ca/cacert.pem" "${CMAKE_BINARY_DIR}/ca-bundle.crt" TLS_VERIFY ON)
+            install(FILES "${CMAKE_BINARY_DIR}/ca-bundle.crt" DESTINATION "ssl/certs")
+        endif()
     endif()
 
 endif()

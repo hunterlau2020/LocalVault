@@ -51,6 +51,7 @@ option(WITH_CCACHE "Use ccache for build" OFF)
 option(WITH_X11 "Enable building with X11 dependencies" ON)
 
 # Advanced Features Control
+option(KPXC_STATIC_BUILD "Build fully statically linked executables (no Qt/VC++ DLLs needed)" OFF)
 option(KPXC_MINIMAL "Build KeePassXC with the minimal feature set required for basic usage" OFF)
 option(KPXC_FEATURE_BROWSER "Browser integration and passkeys support" ON)
 option(KPXC_FEATURE_SSHAGENT "SSH Agent integration" ON)
@@ -436,11 +437,23 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 add_definitions(-DQT_NO_EXCEPTIONS -DQT_STRICT_ITERATORS -DQT_NO_CAST_TO_ASCII)
+if(KPXC_STATIC_BUILD)
+    add_definitions(-DQT_STATIC)
+    # Force static CRT linkage (/MT, /MTd) for all targets
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # Force legacy coroutine ABI to match vcpkg's Qt build
+    add_compile_options(/await)
+endif()
 if(NOT CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")
     add_definitions(-DQT_NO_DEBUG_OUTPUT)
 endif()
 
-get_filename_component(Qt6_PREFIX ${Qt6_DIR}/../../.. REALPATH)
+if(KPXC_STATIC_BUILD)
+    # Qt6_PREFIX from vcpkg is not needed for static builds
+    # windeployqt is not used for static builds
+else()
+    get_filename_component(Qt6_PREFIX ${Qt6_DIR}/../../.. REALPATH)
+endif()
 
 if(APPLE)
     set(CMAKE_MACOSX_RPATH TRUE)
@@ -451,11 +464,15 @@ if(APPLE)
     message(STATUS "Using macdeployqt: ${MACDEPLOYQT_EXE}")
     set(MACDEPLOYQT_EXTRA_BINARIES "")
 elseif(WIN32)
-    find_program(WINDEPLOYQT_EXE windeployqt HINTS ${Qt6_PREFIX}/bin ${Qt6_PREFIX}/tools/qt/bin ENV PATH)
-    if(NOT WINDEPLOYQT_EXE)
-        message(FATAL_ERROR "windeployqt is required to build on Windows")
+    if(NOT KPXC_STATIC_BUILD)
+        find_program(WINDEPLOYQT_EXE windeployqt HINTS ${Qt6_PREFIX}/bin ${Qt6_PREFIX}/tools/qt/bin ENV PATH)
+        if(NOT WINDEPLOYQT_EXE)
+            message(FATAL_ERROR "windeployqt is required to build on Windows")
+        endif()
+        message(STATUS "Using windeployqt: ${WINDEPLOYQT_EXE}")
+    else()
+        message(STATUS "Static build: windeployqt not required")
     endif()
-    message(STATUS "Using windeployqt: ${WINDEPLOYQT_EXE}")
 endif()
 
 # Find Botan

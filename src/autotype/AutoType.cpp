@@ -28,6 +28,16 @@
 
 #include "autotype/AutoTypePlatformPlugin.h"
 #include "autotype/AutoTypeSelectDialog.h"
+
+#ifdef QT_STATIC
+#if defined(Q_OS_WIN)
+#include "autotype/windows/AutoTypeWindows.h"
+// windows.h defines MessageBox as MessageBoxA/W, which conflicts with KeePassXC's MessageBox class
+#ifdef MessageBox
+#undef MessageBox
+#endif
+#endif
+#endif
 #include "autotype/PickcharsDialog.h"
 #include "core/Global.h"
 #include "core/Resources.h"
@@ -141,6 +151,23 @@ AutoType::AutoType(QObject* parent, bool test)
     // prevent crash when the plugin has unresolved symbols
     m_pluginLoader->setLoadHints(QLibrary::ResolveAllSymbolsHint);
 
+#ifdef QT_STATIC
+    // Static build: directly instantiate the platform plugin
+    #if defined(Q_OS_WIN)
+        m_plugin = new AutoTypePlatformWin();
+    #endif
+    if (m_plugin && m_plugin->isAvailable()) {
+        m_executor = m_plugin->createExecutor();
+        connect(osUtils,
+                &OSUtilsBase::globalShortcutTriggered,
+                this,
+                [this](const QString& name, const QString& initialSearch) {
+                    if (name == "autotype") {
+                        startGlobalAutoType(initialSearch);
+                    }
+                });
+    }
+#else
     QString pluginName = "keepassxc-autotype-";
     if (!test) {
         pluginName += QApplication::platformName();
@@ -153,6 +180,7 @@ AutoType::AutoType(QObject* parent, bool test)
     if (!pluginPath.isEmpty()) {
         loadPlugin(pluginPath);
     }
+#endif
 
     connect(this, SIGNAL(autotypeFinished()), SLOT(resetAutoTypeState()));
     connect(qApp, SIGNAL(aboutToQuit()), SLOT(unloadPlugin()));

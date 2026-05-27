@@ -40,6 +40,15 @@
 
 #if defined(Q_OS_WIN)
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+// Image format plugins (required for icons, favicons, etc.)
+Q_IMPORT_PLUGIN(QGifPlugin)
+Q_IMPORT_PLUGIN(QICOPlugin)
+Q_IMPORT_PLUGIN(QJpegPlugin)
+Q_IMPORT_PLUGIN(QTgaPlugin)
+Q_IMPORT_PLUGIN(QWbmpPlugin)
+// QWebpPlugin not available in vcpkg static Qt build
+// SVG icon engine plugin
+Q_IMPORT_PLUGIN(QSvgPlugin)
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
 Q_IMPORT_PLUGIN(QXcbIntegrationPlugin)
 #endif

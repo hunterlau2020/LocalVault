@@ -603,7 +603,9 @@ MainWindow::MainWindow()
     }
 
     // Properly shutdown on logoff, restart, and shutdown
+#if QT_CONFIG(sessionmanager)
     connect(qApp, &QGuiApplication::commitDataRequest, this, [this] { m_appExitCalled = true; });
+#endif
 
 #ifdef KEEPASSXC_BUILD_TYPE_SNAPSHOT
     auto* hidePreRelWarn = new QAction(tr("Don't show again for this version"), m_ui->globalMessageWidget);
@@ -1354,7 +1356,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // Ignore event and hide to tray if this is not an actual close
     // request by the system's session manager.
     if (config()->get(Config::GUI_MinimizeOnClose).toBool() && !m_appExitCalled && !isHidden()
-        && !qApp->isSavingSession()) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 10, 0)
+        && !qApp->isSavingSession()
+#endif
+        ) {
         event->ignore();
         hideWindow();
         return;

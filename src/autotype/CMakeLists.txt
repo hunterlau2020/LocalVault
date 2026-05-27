@@ -26,7 +26,12 @@ if(UNIX AND NOT APPLE AND NOT HAIKU)
 elseif(APPLE)
     add_subdirectory(mac)
 elseif(WIN32)
-    add_subdirectory(windows)
+    if(KPXC_STATIC_BUILD)
+        # Static build: compile Windows autotype directly into the library
+        target_sources(autotype PRIVATE windows/AutoTypeWindows.cpp)
+    else()
+        add_subdirectory(windows)
+    endif()
 endif()
 
 # Auto-type tests

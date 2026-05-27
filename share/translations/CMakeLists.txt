@@ -23,7 +23,18 @@ message(STATUS "Including translations...\n")
 qt6_add_translation(QM_FILES ${TRANSLATION_FILES})
 
 if(WIN32)
-    file(GLOB QTBASE_TRANSLATIONS ${Qt6_PREFIX}/share/qt/translations/qtbase_*.qm)
+    if(KPXC_STATIC_BUILD)
+        # Static build: Qt base translations from vcpkg may not be available
+        # Try vcpkg-installed path first, fall back to skipping
+        file(GLOB QTBASE_TRANSLATIONS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/qt/translations/qtbase_*.qm"
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/translations/qtbase_*.qm")
+        if(NOT QTBASE_TRANSLATIONS)
+            message(STATUS "Qt base translations not found in vcpkg; standard dialogs will use English")
+        endif()
+    else()
+        file(GLOB QTBASE_TRANSLATIONS ${Qt6_PREFIX}/share/qt/translations/qtbase_*.qm)
+    endif()
 elseif(APPLE OR KEEPASSXC_DIST_APPIMAGE)
     file(GLOB QTBASE_TRANSLATIONS
             /usr/share/qt/translations/qtbase_*.qm
