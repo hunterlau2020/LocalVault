@@ -26,6 +26,7 @@
 #include <QJsonObject>
 #include <QSharedPointer>
 #include <QUuid>
+#include <QTimeZone>
 
 Q_DECLARE_METATYPE(VVCompareResult)
 
@@ -52,8 +53,8 @@ void TestSyncMetadata::testDeviceIdentityJsonRoundTrip()
     DeviceIdentity dev;
     dev.deviceId = QStringLiteral("550e8400e29b41d4a716446655440000");
     dev.deviceName = QStringLiteral("test-device");
-    dev.registeredAt = QDateTime(QDate(2026, 5, 10), QTime(14, 30, 0), QTimeZone::UTC);
-    dev.lastSeenAt = QDateTime(QDate(2026, 5, 14), QTime(9, 0, 0), QTimeZone::UTC);
+    dev.registeredAt = QDateTime(QDate(2026, 5, 10), QTime(14, 30, 0), QTimeZone::utc());
+    dev.lastSeenAt = QDateTime(QDate(2026, 5, 14), QTime(9, 0, 0), QTimeZone::utc());
 
     // Round trip
     const QJsonObject json = dev.toJson();
@@ -75,7 +76,7 @@ void TestSyncMetadata::testSyncBaselineJsonRoundTrip()
     bl.remoteId = QStringLiteral("remote-hash-123");
     bl.lastPulledCursor = QStringLiteral("cursor-v3");
     bl.lastPushedCursor = QStringLiteral("cursor-v3");
-    bl.lastSuccessSyncAt = QDateTime(QDate(2026, 5, 14), QTime(9, 0, 0), QTimeZone::UTC);
+    bl.lastSuccessSyncAt = QDateTime(QDate(2026, 5, 14), QTime(9, 0, 0), QTimeZone::utc());
 
     const QJsonObject json = bl.toJson();
     const SyncBaseline restored = SyncBaseline::fromJson(json);
@@ -94,7 +95,7 @@ void TestSyncMetadata::testTombstoneJsonRoundTrip()
 {
     TombstoneRecord tb;
     tb.entryId = QUuid::fromString(QStringLiteral("660e8400e29b41d4a716446655440001"));
-    tb.deletedAt = QDateTime(QDate(2026, 5, 13), QTime(18, 0, 0), QTimeZone::UTC);
+    tb.deletedAt = QDateTime(QDate(2026, 5, 13), QTime(18, 0, 0), QTimeZone::utc());
     tb.deletedBy = QStringLiteral("dev-123");
 
     const QJsonObject json = tb.toJson();
@@ -114,7 +115,7 @@ void TestSyncMetadata::testConflictRecordJsonRoundTrip()
     ConflictRecord cr;
     cr.entryId = QUuid::fromString(QStringLiteral("770e8400e29b41d4a716446655440002"));
     cr.conflictId = QUuid::fromString(QStringLiteral("880e8400e29b41d4a716446655440003"));
-    cr.createdAt = QDateTime(QDate(2026, 5, 13), QTime(12, 0, 0), QTimeZone::UTC);
+    cr.createdAt = QDateTime(QDate(2026, 5, 13), QTime(12, 0, 0), QTimeZone::utc());
     cr.resolved = false;
     cr.conflictingFields << QStringLiteral("url") << QStringLiteral("notes");
 

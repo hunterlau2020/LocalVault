@@ -15,15 +15,28 @@ The following build tools must exist within your PATH:
 * asciidoctor (>= 2.0)
 
 The following minimum versions of libraries must exist:
-* qt (>= 5.12.0)
+* qt (>= 6.2.4)
 * botan (>= 2.12.0 or >= 3.0.0)
 * zlib (>= 1.2.0)
 
-* Besides a working C++ toolchain, KeePassXC also has a number of direct build and runtime dependencies. For detailed information about how to install them, please refer to the GitHub wiki:
+Besides a working C++ toolchain, KeePassXC also has a number of direct build and runtime dependencies. For detailed information about how to install them, please refer to the GitHub wiki:
 
 * [Set up Build Environment on Linux](https://github.com/keepassxreboot/keepassxc/wiki/Set-up-Build-Environment-on-Linux)
 * [Set up Build Environment on Windows](https://github.com/keepassxreboot/keepassxc/wiki/Set-up-Build-Environment-on-Windows)
 * [Set up Build Environment on macOS](https://github.com/keepassxreboot/keepassxc/wiki/Set-up-Build-Environment-on-macOS)
+
+### Debian/Ubuntu Dependency Installation
+
+On Debian, Ubuntu, and their derivatives, you can install all build dependencies (including Qt6 and required libraries) using `apt`:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake g++ ninja-build \
+                 qt6-base-dev qt6-base-private-dev qt6-tools-dev qt6-base-dev-tools \
+                 qt6-svg-dev qt6-5compat-dev libargon2-dev libkeyutils-dev libminizip-dev \
+                 libbotan-2-dev libqrencode-dev zlib1g-dev asciidoctor libreadline-dev \
+                 libpcsclite-dev libusb-1.0-0-dev libxi-dev libxtst-dev
+```
 
 ## Build Steps
 

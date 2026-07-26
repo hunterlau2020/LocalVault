@@ -23,6 +23,7 @@
 #include <QSharedPointer>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <QTimeZone>
 
 #include "config-keepassx-tests.h"
 #include "core/Config.h"
@@ -116,7 +117,7 @@ void TestSnapshotService::testSnapshotRecordJsonRoundTrip()
 {
     SnapshotRecord rec;
     rec.snapshotId = QUuid::createUuid();
-    rec.createdAt = QDateTime(QDate(2026, 5, 18), QTime(10, 30, 0), QTimeZone::UTC);
+    rec.createdAt = QDateTime(QDate(2026, 5, 18), QTime(10, 30, 0), QTimeZone::utc());
     rec.reason = QStringLiteral("sync_pre");
     rec.fileSize = 42;
     rec.localPath = QStringLiteral("/tmp/snapshots/snapshot_test.kdbx");
