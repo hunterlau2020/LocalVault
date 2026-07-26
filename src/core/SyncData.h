@@ -47,7 +47,8 @@ struct SyncOperation
         DirectApply,  // one side has changes, the other doesn't — copy as-is
         AutoMerge,    // both sides changed but fields don't overlap — field-level merge
         Conflict,     // both sides changed with overlapping fields — needs user resolution
-        Skipped       // no changes on either side
+        Skipped,      // no changes on either side
+        DeleteLocally // delete entry locally (since remote has deleted it)
     };
 
     Type type = Skipped;

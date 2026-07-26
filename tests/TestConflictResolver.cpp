@@ -146,6 +146,11 @@ void TestConflictResolver::testKeepLocal()
     QCOMPARE(entry->url(), originalUrl);
     QCOMPARE(entry->title(), QStringLiteral("CommonTitle"));
     QCOMPARE(entry->username(), QStringLiteral("alice"));
+
+    // Verify remote conflict version is saved to history
+    QCOMPARE(entry->historyItems().size(), 1);
+    QCOMPARE(entry->historyItems()[0]->url(), QStringLiteral("https://remote.com"));
+    QCOMPARE(entry->historyItems()[0]->notes(), QStringLiteral("Remote notes"));
 }
 
 void TestConflictResolver::testKeepRemote()
@@ -251,6 +256,15 @@ void TestConflictResolver::testManualMerge()
     QVERIFY(entry != nullptr);
     QCOMPARE(entry->url(), QStringLiteral("https://remote.com"));
     QCOMPARE(entry->notes(), QStringLiteral("Local notes"));
+
+    // Verify both local and remote conflict versions are saved to history
+    QCOMPARE(entry->historyItems().size(), 2);
+    // Remote version (added first via addHistoryItem)
+    QCOMPARE(entry->historyItems()[0]->url(), QStringLiteral("https://remote.com"));
+    QCOMPARE(entry->historyItems()[0]->notes(), QStringLiteral("Remote notes"));
+    // Pre-merge local version (added second via endUpdate)
+    QCOMPARE(entry->historyItems()[1]->url(), QStringLiteral("https://local.com"));
+    QCOMPARE(entry->historyItems()[1]->notes(), QStringLiteral("Local notes"));
 }
 
 void TestConflictResolver::testManualMergeMissingField()

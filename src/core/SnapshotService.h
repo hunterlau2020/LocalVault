@@ -73,6 +73,12 @@ public:
     QList<SnapshotRecord> listSnapshots() const;
     SnapshotRecord snapshotById(const QUuid& snapshotId) const;
     bool deleteSnapshot(const QUuid& snapshotId);
+    /**
+     * Restore the database file to the state of the snapshot.
+     * Performs atomic replacement of the file to prevent data loss on copy failure.
+     * NOTE: The caller MUST close and reload the Database object after calling this
+     * method because the underlying file has been replaced.
+     */
     bool restoreSnapshot(const QUuid& snapshotId);
     bool markProtected(const QUuid& snapshotId);
     bool unmarkProtected(const QUuid& snapshotId);
