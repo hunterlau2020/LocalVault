@@ -19,8 +19,11 @@
 #include "Database.h"
 
 #include "core/AsyncTask.h"
+#include "core/ExternalChangeDetector.h"
 #include "core/FileWatcher.h"
 #include "core/Group.h"
+#include "core/IntegrityDigest.h"
+#include "core/SyncMetadata.h"
 #include "crypto/Random.h"
 #include "format/KdbxXmlReader.h"
 #include "format/KeePass2Reader.h"
@@ -39,6 +42,30 @@
 #ifdef Q_OS_WIN
 #include <Windows.h>
 #endif
+
+namespace
+{
+// Phase 8: refresh the integrity baseline (canonical digests over logical
+// content) into the database's sync metadata, so the written file carries a
+// baseline matching its logical content. No-op for databases that do not yet
+// carry sync metadata. The QSharedPointer uses a no-op deleter because the
+// Database instance is owned by the caller (this is `db`); engine/detector are
+// stack-local and destroyed before `db`.
+void refreshIntegrityBaseline(Database* db)
+{
+    if (!db) {
+        return;
+    }
+    if (!db->metadata()->customData()->contains(SyncMetadataEngine::DB_METADATA_KEY)) {
+        return;
+    }
+    QSharedPointer<Database> self(db, [](Database*){ /* non-owning, do not delete */ });
+    SyncMetadataEngine engine(self);
+    ExternalChangeDetector detector(self, &engine);
+    detector.recordBaseline();
+    engine.saveToDatabase();
+}
+} // namespace
 
 QHash<QUuid, QPointer<Database>> Database::s_uuidMap;
 
@@ -481,6 +508,9 @@ bool Database::writeDatabase(QIODevice* device, QString* error)
 
     KeePass2Writer writer;
     setEmitModified(false);
+    // Phase 8: refresh the integrity baseline so the written file carries a
+    // baseline matching its logical content (sync-enabled databases only).
+    refreshIntegrityBaseline(this);
     writer.writeDatabase(device, this);
     setEmitModified(true);
 

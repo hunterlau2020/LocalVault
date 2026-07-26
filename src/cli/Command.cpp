@@ -46,6 +46,8 @@
 #include "SyncCommand.h"
 #include "SnapshotCommand.h"
 #include "DbCleanupCommand.h"
+#include "DbCheckCommand.h"
+#include "RepairCommand.h"
 #include "Utils.h"
 
 #include <QCommandLineParser>
@@ -193,6 +195,8 @@ namespace Commands
         s_commands.insert(QStringLiteral("sync"), QSharedPointer<Command>(new SyncCommand()));
         s_commands.insert(QStringLiteral("snapshot"), QSharedPointer<Command>(new SnapshotCommand()));
         s_commands.insert(QStringLiteral("db-cleanup"), QSharedPointer<Command>(new DbCleanupCommand()));
+        s_commands.insert(QStringLiteral("db-check"), QSharedPointer<Command>(new DbCheckCommand()));
+        s_commands.insert(QStringLiteral("repair"), QSharedPointer<Command>(new RepairCommand()));
 
         if (interactive) {
             s_commands.insert(QStringLiteral("exit"), QSharedPointer<Command>(new Exit("exit")));

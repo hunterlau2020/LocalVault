@@ -170,3 +170,27 @@ Phase 8 要在「打开后 / 同步前 / 修复前 / 压缩前」检测外部修
 4. **cli 源集登记位置** —— 新增 DbCheckCommand/RepairCommand 的 .cpp 登记点需核对 `src/cli/CMakeLists.txt`（或 src/CMakeLists.txt 的 cli 源集）。
 5. **RiskDirectoryDetector 启发式** —— V1 用固定风险前缀 + 可配置；非密码学判据，仅提示。
 6. **MockClock 与 mtime** —— 文件 mtime 由 OS 控制，MockClock 只控逻辑时钟；mtime 相关测试用「真实改文件」而非 MockClock。
+
+---
+
+## 评审反馈处理（2026-07-26，对应 Gemini/GPT 评审附录 4 个待明确点）
+
+### #1 content_sha256 覆盖盲区 → 已扩展 + 记录残留盲区
+`IntegrityDigest::contentDigest` 现纳入：(a) 每条目附件的**内容 SHA-256**（堵「文件名不变换内容」）；(b) 数据库级元数据（`name`、`recycleBinEnabled`）。新增 `testAttachmentContentChangeDetected` / `testDbMetadataChangeDetected` 锁定。
+**残留盲区（V1.1）**：KDF 参数微调（如降低 Argon2 迭代数）未纳入摘要——属低概率降级路径，完整覆盖需序列化 KDF 参数，留待后续。
+
+### #2 一致性校验 vs 防篡改 → 已声明边界
+`IntegrityDigest.h` 代码注释 + 本节明确：摘要为**无密钥 SHA-256**，与被保护数据同处可编辑 CustomData。可靠抓住「不懂本 schema 的工具/进程动了文件」（SRS 6.1 混用外部同步工具场景）；**抓不住**「存心伪造、会重算摘要的攻击者」。真防篡改需 HMAC/签名，密钥解锁前不可得（鸡生蛋困境），V1 不做。UI 文案不得包装成安全保证。
+
+### #3 检测触发点 → 补 pre-compaction，open-DB 留 GUI
+- **同步前**：`SyncEngine::analyzeDiffs` 起始 `runPreSyncCheck`（Medium/High 阻断）✅
+- **修复前**：`repair` 命令自身天然覆盖 ✅
+- **压缩前**：`DbCleanupCommand` 清理前 `runPreSyncCheck`（Medium/High 阻断）✅（本次新增）
+- **打开数据库后**：**延后到 GUI 集成**。CLI 各命令（db-check/repair/sync/db-cleanup）开库后各自已检测；通用「开库即检测」需在 GUI 的 Database 打开流程接入，属 Phase 8 GUI 工作。
+
+### #4 schema_version 升 2 规则 → 已收紧
+`SyncMetadataEngine::saveToDatabase` 仅在 **`integrity_summary` 非空时**才把 `schema_version` 升到 2（`if (m_schemaVersion < 2 && !m_integritySummary.isEmpty())`）。避免把「从未检测过、summary 为空」的库误标 v2。`testSchemaMigrationV1ToV2` 已更新验证（空 summary save 后保持 v1，填入非空 summary 后才升 v2）。
+
+### 附：评审 #2（AutoMerge）实现可达性修复
+评审正文 #2 指出 AutoMerge（并发不重叠字段自动合并）未实现；远程 `17471bd6` 补了实现，但补 AutoMerge 单测时发现 **`Entry::beginUpdate()` 不复制 `m_customData` 到历史项 → `findCommonAncestor` 在历史里找不到 VV → AutoMerge 实际不可达**（所有并发修改仍升级为 Conflict）。已修复（beginUpdate 补 `m_customData->copyDataFrom`）+ `testAutoMergeNonOverlappingFields` 验证。
+

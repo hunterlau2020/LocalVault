@@ -20,6 +20,7 @@
 
 #include "core/Database.h"
 #include "core/Entry.h"
+#include "core/ExternalChangeDetector.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
 #include "core/TimeInfo.h"
@@ -37,6 +38,8 @@ private slots:
     void testRemoteOnlyEntry();
     void testDifferentFields();
     void testApplyMerge();
+    void testSyncBlockedByExternalChange();
+    void testAutoMergeNonOverlappingFields();
 };
 
 // Minimal helper: create an in-memory database with one entry
@@ -96,7 +99,9 @@ void TestSyncEngine::testRemoteOnlyEntry()
 
     QVERIFY(result.success);
     QCOMPARE(result.addedCount, 1); // Remote Only → added to local
-    QCOMPARE(result.skippedCount, 0);
+    // The reworked engine classifies the local-only entry (LocalEntry) as Skipped
+    // (no action needed when merging remote→local), so it is counted here.
+    QCOMPARE(result.skippedCount, 1);
     QCOMPARE(result.conflictCount, 0);
 }
 
@@ -162,6 +167,95 @@ void TestSyncEngine::testApplyMerge()
     QCOMPARE(entry->url(), QStringLiteral("https://remote.com"));
     QCOMPARE(entry->notes(), QStringLiteral("Modified notes"));
     QCOMPARE(entry->username(), QStringLiteral("alice")); // unchanged
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8: sync must be blocked when the local DB was modified externally.
+// ---------------------------------------------------------------------------
+
+void TestSyncEngine::testSyncBlockedByExternalChange()
+{
+    auto local = makeDb("Local", "Entry1", "alice", "https://example.com", "Hello");
+    auto remote = makeDb("Remote", "Entry1", "alice", "https://example.com", "Hello");
+
+    const QUuid sharedUuid = QUuid::createUuid();
+    local->rootGroup()->entries()[0]->setUuid(sharedUuid);
+    remote->rootGroup()->entries()[0]->setUuid(sharedUuid);
+
+    SyncEngine engine;
+    engine.setMetadataEngine(local); // bind the metadata engine (as SyncCommand does)
+
+    // Record the integrity baseline on the current (clean) local state.
+    {
+        ExternalChangeDetector detector(local, engine.metadataEngine());
+        detector.recordBaseline();
+    }
+
+    // Simulate an external modification of local content after the baseline was recorded.
+    local->rootGroup()->entries()[0]->setNotes(QStringLiteral("externally tampered"));
+
+    const auto result = engine.analyzeDiffs(local, remote);
+
+    // Sync must be blocked: no success, an error message, and no classification performed.
+    QVERIFY(!result.success);
+    QVERIFY(!result.errorMessage.isEmpty());
+    QVERIFY(result.operations.isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent edits on DISJOINT fields must auto-merge (review issue #2),
+// not escalate to a conflict. Requires version vectors + a common-ancestor
+// history item carrying the shared VV.
+// ---------------------------------------------------------------------------
+
+void TestSyncEngine::testAutoMergeNonOverlappingFields()
+{
+    const QUuid sharedUuid = QUuid::createUuid();
+    auto local = makeDb("Local", "T", "alice", "https://base.com", "base notes");
+    auto remote = makeDb("Remote", "T", "alice", "https://base.com", "base notes");
+    local->rootGroup()->entries()[0]->setUuid(sharedUuid);
+    remote->rootGroup()->entries()[0]->setUuid(sharedUuid);
+
+    auto* localEntry = local->rootGroup()->entries()[0];
+    auto* remoteEntry = remote->rootGroup()->entries()[0];
+
+    SyncMetadataEngine localMeta(local);
+    SyncMetadataEngine remoteMeta(remote);
+
+    // Both sides share an ancestor VV.
+    const VersionVector ancestorVV{{QStringLiteral("L"), 1}, {QStringLiteral("R"), 1}};
+    localMeta.setEntryVersionVector(localEntry, ancestorVV);
+    remoteMeta.setEntryVersionVector(remoteEntry, ancestorVV);
+
+    // Local diverges on url; remote diverges on notes (disjoint fields).
+    localEntry->beginUpdate();
+    localEntry->setUrl(QStringLiteral("https://local-new.com"));
+    localMeta.setEntryVersionVector(localEntry, {{QStringLiteral("L"), 2}, {QStringLiteral("R"), 1}});
+    localEntry->endUpdate();
+
+    remoteEntry->beginUpdate();
+    remoteEntry->setNotes(QStringLiteral("remote new notes"));
+    remoteMeta.setEntryVersionVector(remoteEntry, {{QStringLiteral("L"), 1}, {QStringLiteral("R"), 2}});
+    remoteEntry->endUpdate();
+
+    SyncEngine engine;
+    engine.setMetadataEngine(local);
+    const auto result = engine.analyzeDiffs(local, remote);
+
+    QVERIFY(result.success);
+
+    SyncOperation op;
+    bool found = false;
+    for (const auto& o : result.operations) {
+        if (o.entryId == sharedUuid) {
+            op = o;
+            found = true;
+            break;
+        }
+    }
+    QVERIFY(found);
+    QCOMPARE(op.type, SyncOperation::AutoMerge);
+    QCOMPARE(result.conflictCount, 0);
 }
 
 QTEST_GUILESS_MAIN(TestSyncEngine)

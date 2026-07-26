@@ -105,6 +105,28 @@ struct ConflictRecord
 };
 
 /**
+ * Integrity baseline of the local database, used by the External Change
+ * Detector (Phase 8) to detect modifications made outside LocalVault.
+ *
+ * Stored as the "integrity_summary" object inside KPXC_SYNC_METADATA (schema v2).
+ * The digests are computed over canonical logical content with THIS object
+ * excluded, so persisting them is self-consistent (no self-hash oscillation).
+ * file_size / file_mtime are advisory quick-check signals, not cryptographic.
+ */
+struct IntegritySummary
+{
+    QString fileSha256;         // hex SHA-256 of canonical logical DB content
+    qint64 fileSize = 0;        // observed on-disk file size (advisory)
+    QDateTime fileMtimeUtc;     // observed on-disk mtime (advisory)
+    QString metadataRootDigest; // hex SHA-256 of the metadata subset
+    QDateTime checkedAtUtc;     // when this baseline was recorded
+
+    bool isEmpty() const;       // true if never populated (no digests recorded)
+    QJsonObject toJson() const;
+    static IntegritySummary fromJson(const QJsonObject& obj);
+};
+
+/**
  * SyncMetadataEngine — manages sync metadata stored in KDBX CustomData.
  *
  * Database-level metadata lives in Metadata::customData() under "KPXC_SYNC_METADATA".
@@ -127,6 +149,12 @@ public:
 
     // --- Schema ---------------------------------------------------------------
     int schemaVersion() const;
+
+    // --- Canonical metadata snapshot (Phase 8) --------------------------------
+    // Returns the digestable metadata subset (device_registry, sync_baselines,
+    // tombstones, conflicts) as canonical JSON. Excludes schema_version and
+    // integrity_summary so the resulting digest is self-consistent.
+    QJsonObject digestMetadataJson() const;
 
     // --- Device registry ------------------------------------------------------
     QString registerOrLoadCurrentDevice(const QString& deviceName = QString());
@@ -158,6 +186,12 @@ public:
     // --- Sync baselines -------------------------------------------------------
     void updateSyncBaseline(const QString& remoteId, const QString& cursor);
     SyncBaseline syncBaseline(const QString& remoteId) const;
+    void clearSyncBaselines();
+
+    // --- Integrity baseline (Phase 8) -----------------------------------------
+    IntegritySummary integritySummary() const;
+    void setIntegritySummary(const IntegritySummary& summary);
+    void clearIntegritySummary();
 
     // --- Key constants --------------------------------------------------------
     static const QString DB_METADATA_KEY;  // "KPXC_SYNC_METADATA"
@@ -165,13 +199,14 @@ public:
 
 private:
     QSharedPointer<Database> m_db;
-    int m_schemaVersion = 1;
+    int m_schemaVersion = 2;
 
     // In-memory caches (populated by loadFromDatabase, flushed by saveToDatabase)
     QMap<QString, DeviceIdentity> m_deviceRegistry; // deviceId → record
     QMap<QString, SyncBaseline> m_syncBaselines;    // remoteId → baseline
     QMap<QString, TombstoneRecord> m_tombstones;    // entryId string → record
     QList<ConflictRecord> m_conflicts;
+    IntegritySummary m_integritySummary;            // external-change baseline (schema v2)
 
     // Device identity of this local installation (persisted in Config)
     mutable QString m_cachedDeviceId; // lazily loaded
