@@ -80,7 +80,10 @@ private:
     QMap<QUuid, Entry*> indexEntries(QSharedPointer<Database> db);
 
     /** Classify a pair of entries (one or both may be nullptr). */
-    SyncOperation classifyEntry(Entry* localEntry, Entry* remoteEntry);
+    SyncOperation classifyEntry(Entry* localEntry, Entry* remoteEntry, const QUuid& uuid, const SyncMetadataEngine& remoteMetadata);
+
+    /** Find the latest common ancestor of two entries using their histories. */
+    Entry* findCommonAncestor(Entry* localEntry, Entry* remoteEntry);
 
     /** Compute all fields where two snapshots differ. */
     QStringList computeTotalDiff(const EntrySnapshot& a, const EntrySnapshot& b);

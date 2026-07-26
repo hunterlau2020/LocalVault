@@ -249,13 +249,36 @@ bool SnapshotService::restoreSnapshot(const QUuid& snapshotId)
         return false;
     }
 
-    // Copy the snapshot file back to the database path
+    // Copy the snapshot file back to the database path safely (atomic replacement)
     const QString originalPath = m_db->filePath();
-    QFile::remove(originalPath);
-    if (!QFile::copy(it->localPath, originalPath)) {
+    const QString tempPath = originalPath + QStringLiteral(".tmp");
+    const QString backupPath = originalPath + QStringLiteral(".bak");
+
+    // Clean up any stale temp or backup files
+    QFile::remove(tempPath);
+    QFile::remove(backupPath);
+
+    // Copy snapshot to temp file
+    if (!QFile::copy(it->localPath, tempPath)) {
         return false;
     }
+
+    // Backup the original database file
+    if (!QFile::rename(originalPath, backupPath)) {
+        QFile::remove(tempPath);
+        return false;
+    }
+
+    // Atomic replace original with the restored snapshot file
+    if (!QFile::rename(tempPath, originalPath)) {
+        // Rollback from backup if replace fails
+        QFile::rename(backupPath, originalPath);
+        QFile::remove(tempPath);
+        return false;
+    }
+
     QFile::setPermissions(originalPath, QFile::ReadOwner | QFile::WriteOwner);
+    QFile::remove(backupPath);
 
     return true;
 }

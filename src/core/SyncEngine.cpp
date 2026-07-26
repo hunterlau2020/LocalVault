@@ -97,30 +97,123 @@ QStringList SyncEngine::findOverlappingFields(const QStringList& fieldsA, const 
 // Classification
 // ---------------------------------------------------------------------------
 
-SyncOperation SyncEngine::classifyEntry(Entry* localEntry, Entry* remoteEntry)
+Entry* SyncEngine::findCommonAncestor(Entry* localEntry, Entry* remoteEntry)
+{
+    if (!localEntry || !remoteEntry) {
+        return nullptr;
+    }
+
+    QList<Entry*> localVersions;
+    localVersions.append(localEntry);
+    for (auto* h : localEntry->historyItems()) {
+        localVersions.append(h);
+    }
+
+    QList<Entry*> remoteVersions;
+    remoteVersions.append(remoteEntry);
+    for (auto* h : remoteEntry->historyItems()) {
+        remoteVersions.append(h);
+    }
+
+    Entry* bestAncestor = nullptr;
+    VersionVector bestVV;
+
+    for (auto* lVer : localVersions) {
+        VersionVector lVV = m_metadataEngine.getEntryVersionVector(lVer);
+        if (lVV.isEmpty()) {
+            continue;
+        }
+
+        for (auto* rVer : remoteVersions) {
+            VersionVector rVV = m_metadataEngine.getEntryVersionVector(rVer);
+            if (rVV.isEmpty()) {
+                continue;
+            }
+
+            if (lVV == rVV) {
+                if (!bestAncestor) {
+                    bestAncestor = lVer;
+                    bestVV = lVV;
+                } else {
+                    auto cmp = SyncMetadataEngine::compareVersionVectors(lVV, bestVV);
+                    if (cmp == VVCompareResult::LocalDominates) {
+                        bestAncestor = lVer;
+                        bestVV = lVV;
+                    }
+                }
+            }
+        }
+    }
+
+    return bestAncestor;
+}
+
+SyncOperation SyncEngine::classifyEntry(Entry* localEntry, Entry* remoteEntry, const QUuid& uuid, const SyncMetadataEngine& remoteMetadata)
 {
     SyncOperation op;
+    op.entryId = uuid;
+
+    const bool isLocalTombstone = m_metadataEngine.hasDatabase() && m_metadataEngine.isTombstone(uuid);
+    const bool isRemoteTombstone = remoteMetadata.hasDatabase() && remoteMetadata.isTombstone(uuid);
+
+    // --- Both deleted or tombstoned ------------------------------------------
+    if (isLocalTombstone && isRemoteTombstone) {
+        op.type = SyncOperation::Skipped;
+        return op;
+    }
+
+    // --- Deleted on one side, but exists on the other -------------------------
+    if (isLocalTombstone && !isRemoteTombstone && remoteEntry) {
+        // Deleted locally, exists remotely
+        const auto localTombstone = m_metadataEngine.getTombstone(uuid);
+        const QDateTime remoteTime = remoteEntry->timeInfo().lastModificationTime();
+        
+        // Did remote modify it after local deletion?
+        if (remoteTime > localTombstone.deletedAt) {
+            // Remote modification is newer, revive local entry
+            op.type = SyncOperation::DirectApply;
+            op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
+            op.changedFields = QStringList{QStringLiteral("[revived entry]")};
+            return op;
+        } else {
+            // Deletion wins, keep it deleted locally
+            op.type = SyncOperation::Skipped;
+            return op;
+        }
+    }
+
+    if (!isLocalTombstone && isRemoteTombstone && localEntry) {
+        // Exists locally, deleted remotely
+        const auto remoteTombstone = remoteMetadata.getTombstone(uuid);
+        const QDateTime localTime = localEntry->timeInfo().lastModificationTime();
+
+        // Did local modify it after remote deletion?
+        if (localTime > remoteTombstone.deletedAt) {
+            // Local modification is newer, keep it local (no action on local DB)
+            op.type = SyncOperation::Skipped;
+            return op;
+        } else {
+            // Remote deletion wins, delete it locally
+            op.type = SyncOperation::DeleteLocally;
+            op.changedFields = QStringList{QStringLiteral("[deleted entry]")};
+            return op;
+        }
+    }
 
     // --- Only in one database ------------------------------------------------
     if (localEntry && !remoteEntry) {
-        op.type = SyncOperation::DirectApply;
-        op.entryId = localEntry->uuid();
-        op.sourceEntry.reset(localEntry->clone(Entry::CloneIncludeHistory));
-        op.changedFields = QStringList{QStringLiteral("[new entry]")};
+        op.type = SyncOperation::Skipped;
         return op;
     }
 
     if (!localEntry && remoteEntry) {
         op.type = SyncOperation::DirectApply;
-        op.entryId = remoteEntry->uuid();
         op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
         op.changedFields = QStringList{QStringLiteral("[new entry]")};
         return op;
     }
 
     // --- Both exist — compare ------------------------------------------------
-    op.entryId = localEntry->uuid();
-
     const auto localSnap = EntrySnapshot::capture(localEntry);
     const auto remoteSnap = EntrySnapshot::capture(remoteEntry);
 
@@ -140,8 +233,6 @@ SyncOperation SyncEngine::classifyEntry(Entry* localEntry, Entry* remoteEntry)
 
             switch (vvResult) {
             case VVCompareResult::Equal:
-                // VVs match but entries differ → concurrent modifications without
-                // proper VV increment (unusual); treat as conflict.
                 break;
             case VVCompareResult::LocalDominates:
                 op.type = SyncOperation::Skipped;
@@ -179,21 +270,26 @@ SyncOperation SyncEngine::classifyEntry(Entry* localEntry, Entry* remoteEntry)
     }
 
     // --- Concurrent (same time window or VVs concurrent) — check field overlap -
-    //
-    // Without a sync baseline we treat ALL differing fields as concurrent.
-    // Partition: localSide = fields where local has "its value" (== localSnap)
-    //            remoteSide = fields where remote has "its value" (== remoteSnap)
-    // Since both differ from each other and we have no baseline, every
-    // differing field is in BOTH sets — so every field is a conflict.
-    //
-    // For Phase 4 we take the conservative approach: report all differing
-    // fields as conflicts when timestamps are tied.
+    Entry* ancestor = findCommonAncestor(localEntry, remoteEntry);
+    if (ancestor) {
+        const auto ancestorSnap = EntrySnapshot::capture(ancestor);
+        const auto localDiff = computeTotalDiff(ancestorSnap, localSnap);
+        const auto remoteDiff = computeTotalDiff(ancestorSnap, remoteSnap);
 
-    // Capture which values are on each side
+        const auto overlap = findOverlappingFields(localDiff, remoteDiff);
+        if (overlap.isEmpty()) {
+            // No overlap! Auto merge.
+            op.type = SyncOperation::AutoMerge;
+            op.sourceEntry.reset(remoteEntry->clone(Entry::CloneIncludeHistory));
+            op.changedFields = remoteDiff;
+            return op;
+        }
+    }
+
+    // Fallback: Conflict
     EntryDiff localVsRemote = EntryDiff::compute(localSnap, remoteSnap);
     QStringList allChanged = diffFieldNames(localVsRemote);
 
-    // Build conflict detail
     QList<SyncFieldConflict> conflicts;
     for (const auto& fd : localVsRemote.changedFields) {
         conflicts.append({fd.fieldName, fd.oldValue, fd.newValue});
@@ -229,10 +325,25 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
         ss.createSnapshot(QStringLiteral("sync_pre"));
     }
 
+    // Import deletions from Database::deletedObjects() to metadata tombstones
+    if (m_metadataEngine.hasDatabase()) {
+        for (const auto& del : local->deletedObjects()) {
+            if (!m_metadataEngine.isTombstone(del.uuid)) {
+                m_metadataEngine.addTombstone(del.uuid, del.deletionTime);
+            }
+        }
+    }
+    SyncMetadataEngine remoteMetadata(remote);
+    for (const auto& del : remote->deletedObjects()) {
+        if (!remoteMetadata.isTombstone(del.uuid)) {
+            remoteMetadata.addTombstone(del.uuid, del.deletionTime);
+        }
+    }
+
     const auto localEntries = indexEntries(local);
     const auto remoteEntries = indexEntries(remote);
 
-    // Collect all UUIDs
+    // Collect all UUIDs (including deleted ones from tombstones)
     QSet<QUuid> allUuids;
     for (const auto& uuid : localEntries.keys()) {
         allUuids.insert(uuid);
@@ -240,13 +351,21 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
     for (const auto& uuid : remoteEntries.keys()) {
         allUuids.insert(uuid);
     }
+    if (m_metadataEngine.hasDatabase()) {
+        for (const auto& tb : m_metadataEngine.tombstones()) {
+            allUuids.insert(tb.entryId);
+        }
+    }
+    for (const auto& tb : remoteMetadata.tombstones()) {
+        allUuids.insert(tb.entryId);
+    }
 
     // Classify each entry
     for (const auto& uuid : allUuids) {
         auto* localEntry = localEntries.value(uuid, nullptr);
         auto* remoteEntry = remoteEntries.value(uuid, nullptr);
 
-        auto op = classifyEntry(localEntry, remoteEntry);
+        auto op = classifyEntry(localEntry, remoteEntry, uuid, remoteMetadata);
         op.entryId = uuid;
         result.operations.append(op);
 
@@ -259,7 +378,6 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
                 // Both exist, one side is newer → update local
                 ++result.updatedCount;
             }
-            // localEntry && !remoteEntry: Local Only → no action on local DB
             break;
         case SyncOperation::AutoMerge:
             ++result.updatedCount;
@@ -269,6 +387,9 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
             break;
         case SyncOperation::Skipped:
             ++result.skippedCount;
+            break;
+        case SyncOperation::DeleteLocally:
+            ++result.deletedCount;
             break;
         }
     }
@@ -362,6 +483,14 @@ bool SyncEngine::applyMerges(const SyncResult& result, QSharedPointer<Database> 
             continue;
         }
 
+        if (op.type == SyncOperation::DeleteLocally) {
+            auto* localEntry = local->rootGroup()->findEntryByUuid(op.entryId);
+            if (localEntry) {
+                delete localEntry;
+            }
+            continue;
+        }
+
         if (!op.sourceEntry) {
             allOk = false;
             continue;
@@ -400,8 +529,27 @@ bool SyncEngine::applyMerges(const SyncResult& result, QSharedPointer<Database> 
 
                 // Advance local version vector after merging
                 if (m_metadataEngine.hasDatabase()) {
+                    VersionVector localVV = m_metadataEngine.getEntryVersionVector(localEntry);
+                    if (remote) {
+                        auto* remoteEntry = remote->rootGroup()->findEntryByUuid(op.entryId);
+                        if (remoteEntry) {
+                            VersionVector remoteVV = m_metadataEngine.getEntryVersionVector(remoteEntry);
+                            localVV = SyncMetadataEngine::mergeVersionVectors(localVV, remoteVV);
+                        }
+                    }
+                    m_metadataEngine.setEntryVersionVector(localEntry, localVV);
                     m_metadataEngine.incrementEntryCounter(localEntry);
                 }
+            }
+        }
+    }
+
+    // Replicate tombstones from remote to local
+    if (m_metadataEngine.hasDatabase() && remote) {
+        SyncMetadataEngine remoteMetadata(remote);
+        for (const auto& tb : remoteMetadata.tombstones()) {
+            if (!m_metadataEngine.isTombstone(tb.entryId)) {
+                m_metadataEngine.addTombstone(tb.entryId, tb.deletedAt, tb.deletedBy);
             }
         }
     }

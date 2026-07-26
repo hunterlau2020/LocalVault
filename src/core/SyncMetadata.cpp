@@ -479,7 +479,7 @@ VersionVector SyncMetadataEngine::mergeVersionVectors(const VersionVector& a, co
 // Tombstones
 // ---------------------------------------------------------------------------
 
-void SyncMetadataEngine::addTombstone(const QUuid& entryId)
+void SyncMetadataEngine::addTombstone(const QUuid& entryId, const QDateTime& deletedAt, const QString& deletedBy)
 {
     if (entryId.isNull()) {
         return;
@@ -487,9 +487,14 @@ void SyncMetadataEngine::addTombstone(const QUuid& entryId)
 
     TombstoneRecord tb;
     tb.entryId = entryId;
-    tb.deletedAt = QDateTime::currentDateTimeUtc();
-    tb.deletedBy = currentDeviceId();
+    tb.deletedAt = deletedAt.isValid() ? deletedAt : QDateTime::currentDateTimeUtc();
+    tb.deletedBy = !deletedBy.isEmpty() ? deletedBy : currentDeviceId();
     m_tombstones.insert(entryId.toString(QUuid::Id128), tb);
+}
+
+TombstoneRecord SyncMetadataEngine::getTombstone(const QUuid& entryId) const
+{
+    return m_tombstones.value(entryId.toString(QUuid::Id128));
 }
 
 bool SyncMetadataEngine::isTombstone(const QUuid& entryId) const

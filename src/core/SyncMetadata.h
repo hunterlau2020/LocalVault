@@ -143,7 +143,8 @@ public:
     static VersionVector mergeVersionVectors(const VersionVector& a, const VersionVector& b);
 
     // --- Tombstones -----------------------------------------------------------
-    void addTombstone(const QUuid& entryId);
+    void addTombstone(const QUuid& entryId, const QDateTime& deletedAt = {}, const QString& deletedBy = {});
+    TombstoneRecord getTombstone(const QUuid& entryId) const;
     bool isTombstone(const QUuid& entryId) const;
     void removeTombstone(const QUuid& entryId);
     QList<TombstoneRecord> tombstones() const;

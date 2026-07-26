@@ -215,12 +215,12 @@ ConflictResolverService::resolveAll(const QList<ConflictItem>& items,
 
 void ConflictResolverService::resolveKeepLocal(Entry* localEntry, const ConflictItem& item)
 {
-    Q_UNUSED(item);
-    // beginUpdate/endUpdate with no modifications is a no-op in terms
-    // of history (endUpdate only saves a history item if the entry was
-    // actually modified). We call it anyway for consistency.
-    localEntry->beginUpdate();
-    localEntry->endUpdate();
+    if (item.remoteEntry) {
+        Entry* remoteClone = item.remoteEntry->clone(Entry::CloneDefault);
+        remoteClone->setUuid(localEntry->uuid());
+        localEntry->addHistoryItem(remoteClone);
+        localEntry->truncateHistory();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +253,13 @@ bool ConflictResolverService::resolveManualMerge(Entry* localEntry,
             *errorOut = QStringLiteral("Missing merged value for field: %1").arg(missingField);
         }
         return false;
+    }
+
+    if (item.remoteEntry) {
+        Entry* remoteClone = item.remoteEntry->clone(Entry::CloneDefault);
+        remoteClone->setUuid(localEntry->uuid());
+        localEntry->addHistoryItem(remoteClone);
+        localEntry->truncateHistory();
     }
 
     localEntry->beginUpdate();
