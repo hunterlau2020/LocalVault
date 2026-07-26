@@ -104,6 +104,9 @@ add_unit_test(NAME testsyncengine SOURCES TestSyncEngine.cpp
 add_unit_test(NAME testsyncmetadata SOURCES TestSyncMetadata.cpp
         LIBS ${TEST_LIBRARIES})
 
+add_unit_test(NAME testintegritydigest SOURCES TestIntegrityDigest.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testconflictresolver SOURCES TestConflictResolver.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
@@ -111,6 +114,9 @@ add_unit_test(NAME testsnapshotservice SOURCES TestSnapshotService.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
 add_unit_test(NAME testlifecyclemanager SOURCES TestLifecycleManager.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
+add_unit_test(NAME testexternalchangedetector SOURCES TestExternalChangeDetector.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
 add_unit_test(NAME testmerge SOURCES TestMerge.cpp

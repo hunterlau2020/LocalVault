@@ -35,6 +35,21 @@
 const QString SyncMetadataEngine::DB_METADATA_KEY = QStringLiteral("KPXC_SYNC_METADATA");
 const QString SyncMetadataEngine::ENTRY_VV_KEY = QStringLiteral("KPXC_SYNC_VV");
 
+// Parse a UUID stored in either the dashed format or the Id128 (no-dash) format.
+// QUuid::fromString does not accept the Id128 format that toJson() emits via
+// QUuid::Id128, so re-insert dashes before delegating to fromString. This keeps
+// tombstone/conflict records round-trippable (backward compatible with on-disk v1 data).
+static QUuid parseUuidLoose(const QString& s)
+{
+    if (s.length() == 32 && !s.contains(QLatin1Char('-'))) {
+        const QString dashed = s.left(8) + QStringLiteral("-") + s.mid(8, 4) + QStringLiteral("-")
+                             + s.mid(12, 4) + QStringLiteral("-") + s.mid(16, 4) + QStringLiteral("-")
+                             + s.mid(20);
+        return QUuid::fromString(dashed);
+    }
+    return QUuid::fromString(s);
+}
+
 // ---------------------------------------------------------------------------
 // DeviceIdentity
 // ---------------------------------------------------------------------------
@@ -107,7 +122,7 @@ QJsonObject TombstoneRecord::toJson() const
 TombstoneRecord TombstoneRecord::fromJson(const QJsonObject& obj)
 {
     TombstoneRecord t;
-    t.entryId = QUuid::fromString(obj.value(QStringLiteral("entry_id")).toString());
+    t.entryId = parseUuidLoose(obj.value(QStringLiteral("entry_id")).toString());
     t.deletedAt = QDateTime::fromString(obj.value(QStringLiteral("deleted_at")).toString(), Qt::ISODate);
     t.deletedBy = obj.value(QStringLiteral("deleted_by")).toString();
     if (!t.deletedAt.isValid()) {
@@ -138,8 +153,8 @@ QJsonObject ConflictRecord::toJson() const
 ConflictRecord ConflictRecord::fromJson(const QJsonObject& obj)
 {
     ConflictRecord c;
-    c.entryId = QUuid::fromString(obj.value(QStringLiteral("entry_id")).toString());
-    c.conflictId = QUuid::fromString(obj.value(QStringLiteral("conflict_id")).toString());
+    c.entryId = parseUuidLoose(obj.value(QStringLiteral("entry_id")).toString());
+    c.conflictId = parseUuidLoose(obj.value(QStringLiteral("conflict_id")).toString());
     c.createdAt = QDateTime::fromString(obj.value(QStringLiteral("created_at")).toString(), Qt::ISODate);
     c.resolved = obj.value(QStringLiteral("resolved")).toBool(false);
     const auto fields = obj.value(QStringLiteral("conflicting_fields")).toArray();
@@ -153,17 +168,52 @@ ConflictRecord ConflictRecord::fromJson(const QJsonObject& obj)
 }
 
 // ---------------------------------------------------------------------------
+// IntegritySummary
+// ---------------------------------------------------------------------------
+
+bool IntegritySummary::isEmpty() const
+{
+    return metadataRootDigest.isEmpty() && fileSha256.isEmpty();
+}
+
+QJsonObject IntegritySummary::toJson() const
+{
+    QJsonObject obj;
+    obj[QStringLiteral("file_sha256")] = fileSha256;
+    obj[QStringLiteral("file_size")] = fileSize;
+    if (fileMtimeUtc.isValid()) {
+        obj[QStringLiteral("file_mtime_utc")] = fileMtimeUtc.toUTC().toString(Qt::ISODate);
+    }
+    obj[QStringLiteral("metadata_root_digest")] = metadataRootDigest;
+    if (checkedAtUtc.isValid()) {
+        obj[QStringLiteral("checked_at_utc")] = checkedAtUtc.toUTC().toString(Qt::ISODate);
+    }
+    return obj;
+}
+
+IntegritySummary IntegritySummary::fromJson(const QJsonObject& obj)
+{
+    IntegritySummary s;
+    s.fileSha256 = obj.value(QStringLiteral("file_sha256")).toString();
+    s.fileSize = obj.value(QStringLiteral("file_size")).toVariant().toLongLong();
+    s.fileMtimeUtc = QDateTime::fromString(obj.value(QStringLiteral("file_mtime_utc")).toString(), Qt::ISODate);
+    s.metadataRootDigest = obj.value(QStringLiteral("metadata_root_digest")).toString();
+    s.checkedAtUtc = QDateTime::fromString(obj.value(QStringLiteral("checked_at_utc")).toString(), Qt::ISODate);
+    return s;
+}
+
+// ---------------------------------------------------------------------------
 // SyncMetadataEngine
 // ---------------------------------------------------------------------------
 
 SyncMetadataEngine::SyncMetadataEngine()
-    : m_schemaVersion(1)
+    : m_schemaVersion(2)
 {
 }
 
 SyncMetadataEngine::SyncMetadataEngine(QSharedPointer<Database> db)
     : m_db(std::move(db))
-    , m_schemaVersion(1)
+    , m_schemaVersion(2)
 {
     loadFromDatabase();
 }
@@ -191,7 +241,8 @@ void SyncMetadataEngine::loadFromDatabase()
     m_syncBaselines.clear();
     m_tombstones.clear();
     m_conflicts.clear();
-    m_schemaVersion = 1;
+    m_integritySummary = IntegritySummary{};
+    m_schemaVersion = 2;
 
     if (!m_db) {
         return;
@@ -245,17 +296,15 @@ void SyncMetadataEngine::loadFromDatabase()
     for (const auto& val : cfArr) {
         m_conflicts.append(ConflictRecord::fromJson(val.toObject()));
     }
+
+    // Integrity baseline (schema v2; absent in v1 databases → empty summary)
+    m_integritySummary =
+        IntegritySummary::fromJson(root.value(QStringLiteral("integrity_summary")).toObject());
 }
 
-void SyncMetadataEngine::saveToDatabase()
+QJsonObject SyncMetadataEngine::digestMetadataJson() const
 {
-    if (!m_db) {
-        return;
-    }
-
     QJsonObject root;
-
-    root[QStringLiteral("schema_version")] = m_schemaVersion;
 
     // Device registry
     QJsonArray devArr;
@@ -285,8 +334,50 @@ void SyncMetadataEngine::saveToDatabase()
     }
     root[QStringLiteral("conflicts")] = cfArr;
 
+    return root;
+}
+
+void SyncMetadataEngine::saveToDatabase()
+{
+    if (!m_db) {
+        return;
+    }
+
+    // v2 introduces the integrity_summary baseline object; upgrade on save.
+    if (m_schemaVersion < 2) {
+        m_schemaVersion = 2;
+    }
+
+    QJsonObject root = digestMetadataJson();
+    root[QStringLiteral("schema_version")] = m_schemaVersion;
+    root[QStringLiteral("integrity_summary")] = m_integritySummary.toJson();
+
     const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     m_db->metadata()->customData()->set(DB_METADATA_KEY, QString::fromUtf8(json));
+}
+
+// ---------------------------------------------------------------------------
+// Integrity baseline (Phase 8)
+// ---------------------------------------------------------------------------
+
+IntegritySummary SyncMetadataEngine::integritySummary() const
+{
+    return m_integritySummary;
+}
+
+void SyncMetadataEngine::setIntegritySummary(const IntegritySummary& summary)
+{
+    m_integritySummary = summary;
+}
+
+void SyncMetadataEngine::clearIntegritySummary()
+{
+    m_integritySummary = IntegritySummary{};
+}
+
+void SyncMetadataEngine::clearSyncBaselines()
+{
+    m_syncBaselines.clear();
 }
 
 // ---------------------------------------------------------------------------

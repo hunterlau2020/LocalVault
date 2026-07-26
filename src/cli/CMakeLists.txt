@@ -27,6 +27,7 @@ set(cli_SOURCES
         DatabaseCreate.cpp
         DatabaseEdit.cpp
         DatabaseInfo.cpp
+        DbCheckCommand.cpp
         Diceware.cpp
         Edit.cpp
         Estimate.cpp
@@ -41,6 +42,7 @@ set(cli_SOURCES
         Open.cpp
         Remove.cpp
         RemoveGroup.cpp
+        RepairCommand.cpp
         Search.cpp
         Show.cpp
         ShowMetadata.cpp

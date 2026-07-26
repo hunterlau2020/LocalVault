@@ -36,10 +36,12 @@ set(core_SOURCES
         core/SyncEngine.cpp
         core/ConflictResolver.cpp
         core/EntrySearcher.cpp
+        core/ExternalChangeDetector.cpp
         core/FileWatcher.cpp
         core/Group.cpp
         core/HibpOffline.cpp
         core/HistoryRetentionService.cpp
+        core/IntegrityDigest.cpp
         core/InactivityTimer.cpp
         core/LifecycleManager.cpp
         core/Merger.cpp

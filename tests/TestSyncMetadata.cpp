@@ -41,6 +41,10 @@ private slots:
     void testVersionVectorCompare();
     void testVersionVectorMerge();
     void testEmptyEngine();
+    // Phase 8: integrity baseline & schema migration
+    void testIntegritySummaryJsonRoundTrip();
+    void testIntegritySummaryPersistence();
+    void testSchemaMigrationV1ToV2();
 };
 
 // ---------------------------------------------------------------------------
@@ -188,13 +192,127 @@ void TestSyncMetadata::testEmptyEngine()
     db->metadata()->setName(QStringLiteral("test"));
 
     SyncMetadataEngine engine(db);
-    QCOMPARE(engine.schemaVersion(), 1);
+    QCOMPARE(engine.schemaVersion(), 2); // v2-capable engine (Phase 8 schema bump)
     QVERIFY(engine.deviceRegistry().isEmpty());
     QVERIFY(engine.tombstones().isEmpty());
     QVERIFY(engine.conflicts().isEmpty());
 
     // Fresh database metadata: deviceId should be empty until registered
     QVERIFY(!engine.hasDatabase() || engine.currentDeviceId().isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// IntegritySummary (Phase 8)
+// ---------------------------------------------------------------------------
+
+void TestSyncMetadata::testIntegritySummaryJsonRoundTrip()
+{
+    IntegritySummary s;
+    s.fileSha256 = QStringLiteral("abc123def");
+    s.fileSize = 4096;
+    s.fileMtimeUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 0, 0), QTimeZone::UTC);
+    s.metadataRootDigest = QStringLiteral("feedface");
+    s.checkedAtUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 5, 0), QTimeZone::UTC);
+
+    QVERIFY(!s.isEmpty());
+    const QJsonObject json = s.toJson();
+    const IntegritySummary restored = IntegritySummary::fromJson(json);
+
+    QCOMPARE(restored.fileSha256, s.fileSha256);
+    QCOMPARE(restored.fileSize, s.fileSize);
+    QCOMPARE(restored.fileMtimeUtc, s.fileMtimeUtc);
+    QCOMPARE(restored.metadataRootDigest, s.metadataRootDigest);
+    QCOMPARE(restored.checkedAtUtc, s.checkedAtUtc);
+    QVERIFY(!restored.isEmpty());
+
+    // Default-constructed summary is empty.
+    QVERIFY(IntegritySummary{}.isEmpty());
+}
+
+void TestSyncMetadata::testIntegritySummaryPersistence()
+{
+    auto db = QSharedPointer<Database>(new Database());
+    db->metadata()->setName(QStringLiteral("integrity"));
+
+    SyncMetadataEngine engine(db);
+    QVERIFY(engine.integritySummary().isEmpty());
+
+    IntegritySummary s;
+    s.fileSha256 = QStringLiteral("deadbeef");
+    s.metadataRootDigest = QStringLiteral("cafef00d");
+    s.fileSize = 1024;
+    engine.setIntegritySummary(s);
+    engine.saveToDatabase();
+
+    // Reload from the same DB and verify round-trip.
+    SyncMetadataEngine reloaded(db);
+    QVERIFY(!reloaded.integritySummary().isEmpty());
+    QCOMPARE(reloaded.integritySummary().fileSha256, QStringLiteral("deadbeef"));
+    QCOMPARE(reloaded.integritySummary().metadataRootDigest, QStringLiteral("cafef00d"));
+    QCOMPARE(reloaded.integritySummary().fileSize, 1024);
+
+    // clearIntegritySummary + save → reloaded is empty again.
+    engine.clearIntegritySummary();
+    engine.saveToDatabase();
+    SyncMetadataEngine afterClear(db);
+    QVERIFY(afterClear.integritySummary().isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// Schema migration v1 → v2 (Phase 8)
+// ---------------------------------------------------------------------------
+
+void TestSyncMetadata::testSchemaMigrationV1ToV2()
+{
+    auto db = QSharedPointer<Database>(new Database());
+    db->metadata()->setName(QStringLiteral("v1-migration"));
+
+    // Simulate a legacy v1 database: schema_version=1, the four old fields, NO integrity_summary.
+    const QString v1Json = QStringLiteral(
+        "{\"schema_version\":1,"
+        "\"device_registry\":[{\"device_id\":\"dev1\",\"device_name\":\"d\","
+        "\"registered_at\":\"2026-05-10T14:30:00Z\",\"last_seen_at\":\"2026-05-10T14:30:00Z\"}],"
+        "\"sync_baselines\":[{\"remote_id\":\"r1\",\"last_pulled_cursor\":\"c\",\"last_pushed_cursor\":\"c\"}],"
+        "\"tombstones\":[{\"entry_id\":\"660e8400e29b41d4a716446655440001\","
+        "\"deleted_at\":\"2026-05-13T18:00:00Z\",\"deleted_by\":\"dev1\"}],"
+        "\"conflicts\":[{\"entry_id\":\"770e8400e29b41d4a716446655440002\","
+        "\"conflict_id\":\"880e8400e29b41d4a716446655440003\",\"created_at\":\"2026-05-13T12:00:00Z\","
+        "\"resolved\":false,\"conflicting_fields\":[\"url\"]}]}");
+    db->metadata()->customData()->set(SyncMetadataEngine::DB_METADATA_KEY, v1Json);
+
+    SyncMetadataEngine engine(db);
+
+    // v1 loads honestly as v1; integrity_summary absent → empty; old fields preserved.
+    QCOMPARE(engine.schemaVersion(), 1);
+    QVERIFY(engine.integritySummary().isEmpty());
+    QCOMPARE(engine.deviceRegistry().size(), 1);
+    QCOMPARE(engine.syncBaseline(QStringLiteral("r1")).remoteId, QStringLiteral("r1"));
+    QCOMPARE(engine.tombstones().size(), 1);
+    QCOMPARE(engine.conflicts().size(), 1);
+
+    // Saving upgrades the schema to v2 and writes integrity_summary (non-destructive).
+    engine.saveToDatabase();
+    QCOMPARE(engine.schemaVersion(), 2);
+
+    // Re-read the persisted JSON: schema_version==2, integrity_summary present, old fields intact.
+    const QString raw = db->metadata()->customData()->value(SyncMetadataEngine::DB_METADATA_KEY);
+    const auto doc = QJsonDocument::fromJson(raw.toUtf8());
+    QVERIFY(doc.isObject());
+    const QJsonObject root = doc.object();
+    QCOMPARE(root.value(QStringLiteral("schema_version")).toInt(), 2);
+    QVERIFY(root.contains(QStringLiteral("integrity_summary")));
+    QVERIFY(root.value(QStringLiteral("integrity_summary")).isObject());
+    QCOMPARE(root.value(QStringLiteral("device_registry")).toArray().size(), 1);
+    QCOMPARE(root.value(QStringLiteral("sync_baselines")).toArray().size(), 1);
+    QCOMPARE(root.value(QStringLiteral("tombstones")).toArray().size(), 1);
+    QCOMPARE(root.value(QStringLiteral("conflicts")).toArray().size(), 1);
+
+    // A freshly-loaded engine on the upgraded DB reports v2 with empty (but present) summary.
+    SyncMetadataEngine reloaded(db);
+    QCOMPARE(reloaded.schemaVersion(), 2);
+    QVERIFY(reloaded.integritySummary().isEmpty());
+    QCOMPARE(reloaded.deviceRegistry().size(), 1);
+    QCOMPARE(reloaded.conflicts().size(), 1);
 }
 
 QTEST_GUILESS_MAIN(TestSyncMetadata)

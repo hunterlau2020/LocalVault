@@ -20,6 +20,7 @@
 
 #include "core/Database.h"
 #include "core/Entry.h"
+#include "core/ExternalChangeDetector.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
 #include "core/TimeInfo.h"
@@ -37,6 +38,7 @@ private slots:
     void testRemoteOnlyEntry();
     void testDifferentFields();
     void testApplyMerge();
+    void testSyncBlockedByExternalChange();
 };
 
 // Minimal helper: create an in-memory database with one entry
@@ -162,6 +164,39 @@ void TestSyncEngine::testApplyMerge()
     QCOMPARE(entry->url(), QStringLiteral("https://remote.com"));
     QCOMPARE(entry->notes(), QStringLiteral("Modified notes"));
     QCOMPARE(entry->username(), QStringLiteral("alice")); // unchanged
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8: sync must be blocked when the local DB was modified externally.
+// ---------------------------------------------------------------------------
+
+void TestSyncEngine::testSyncBlockedByExternalChange()
+{
+    auto local = makeDb("Local", "Entry1", "alice", "https://example.com", "Hello");
+    auto remote = makeDb("Remote", "Entry1", "alice", "https://example.com", "Hello");
+
+    const QUuid sharedUuid = QUuid::createUuid();
+    local->rootGroup()->entries()[0]->setUuid(sharedUuid);
+    remote->rootGroup()->entries()[0]->setUuid(sharedUuid);
+
+    SyncEngine engine;
+    engine.setMetadataEngine(local); // bind the metadata engine (as SyncCommand does)
+
+    // Record the integrity baseline on the current (clean) local state.
+    {
+        ExternalChangeDetector detector(local, engine.metadataEngine());
+        detector.recordBaseline();
+    }
+
+    // Simulate an external modification of local content after the baseline was recorded.
+    local->rootGroup()->entries()[0]->setNotes(QStringLiteral("externally tampered"));
+
+    const auto result = engine.analyzeDiffs(local, remote);
+
+    // Sync must be blocked: no success, an error message, and no classification performed.
+    QVERIFY(!result.success);
+    QVERIFY(!result.errorMessage.isEmpty());
+    QVERIFY(result.operations.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestSyncEngine)

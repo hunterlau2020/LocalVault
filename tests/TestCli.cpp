@@ -248,7 +248,7 @@ void TestCli::testBatchCommands()
     QVERIFY(Commands::getCommand("show"));
     QVERIFY(Commands::getCommand("search"));
     QVERIFY(!Commands::getCommand("doesnotexist"));
-    QCOMPARE(Commands::getCommands().size(), 26);
+    QCOMPARE(Commands::getCommands().size(), 32);
 }
 
 void TestCli::testInteractiveCommands()
@@ -280,7 +280,7 @@ void TestCli::testInteractiveCommands()
     QVERIFY(Commands::getCommand("show"));
     QVERIFY(Commands::getCommand("search"));
     QVERIFY(!Commands::getCommand("doesnotexist"));
-    QCOMPARE(Commands::getCommands().size(), 26);
+    QCOMPARE(Commands::getCommands().size(), 32);
 }
 
 void TestCli::testAdd()

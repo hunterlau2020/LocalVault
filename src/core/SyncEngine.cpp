@@ -23,6 +23,7 @@
 #include "core/EntryAttributes.h"
 #include "core/EntryDiff.h"
 #include "core/EntrySnapshot.h"
+#include "core/ExternalChangeDetector.h"
 #include "core/Group.h"
 #include "core/SnapshotService.h"
 
@@ -220,6 +221,26 @@ SyncResult SyncEngine::analyzeDiffs(QSharedPointer<Database> local, QSharedPoint
         result.success = false;
         result.errorMessage = QStringLiteral("Invalid database pointer(s)");
         return result;
+    }
+
+    // Phase 8: abort sync if the local database shows signs of external modification.
+    // The metadata engine must be bound to the local DB (SyncCommand calls
+    // setMetadataEngine); an unbound engine makes this check a harmless no-op.
+    {
+        ExternalChangeDetector detector(local, &m_metadataEngine);
+        ExternalChangeReport report;
+        if (!detector.runPreSyncCheck(&report)) {
+            result.success = false;
+            result.errorMessage = QStringLiteral(
+                "Sync aborted: the local database appears to have been modified outside "
+                "LocalVault. Run `keepassxc-cli db-check` / `repair` before syncing. "
+                "Findings: %1")
+                    .arg(report.findings.join(QStringLiteral("; ")));
+            return result;
+        }
+        if (report.severity == ChangeSeverity::Low) {
+            result.warnings.append(report.findings);
+        }
     }
 
     // Auto-snapshot before sync (best-effort: snapshot creation failure
