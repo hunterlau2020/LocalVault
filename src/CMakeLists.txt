@@ -308,6 +308,10 @@ endif()
 add_subdirectory(cli)
 add_subdirectory(thirdparty)
 
+if(EXISTS "${CMAKE_SOURCE_DIR}/pwd_merge/CMakeLists.txt")
+    add_subdirectory(../pwd_merge ${CMAKE_CURRENT_BINARY_DIR}/pwd_merge)
+endif()
+
 add_subdirectory(autotype)
 set(autotype_LIB autotype)
 

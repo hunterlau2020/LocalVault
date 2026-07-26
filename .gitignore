@@ -34,5 +34,5 @@ vcpkg_installed*/
 
 # Project docs & AI config (not committed)
 /CLAUDE.md
-/docs/
+docs/*.txt
 .claude/

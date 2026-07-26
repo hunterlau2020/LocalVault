@@ -9,6 +9,24 @@
     "readline",
     "zlib",
     {
+      "name": "qtbase",
+      "default-features": false,
+      "features": ["gui", "widgets", "network", "concurrent", "testlib", "openssl", "jpeg", "png", "freetype", "harfbuzz", "zstd"]
+    },
+    {
+      "name": "qtsvg",
+      "default-features": false
+    },
+    {
+      "name": "qtimageformats",
+      "default-features": false
+    },
+    {
+      "name": "qttools",
+      "default-features": false,
+      "features": ["linguist"]
+    },
+    {
       "name": "libusb",
       "platform": "linux | freebsd"
     },
