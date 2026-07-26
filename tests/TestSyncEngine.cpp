@@ -98,7 +98,9 @@ void TestSyncEngine::testRemoteOnlyEntry()
 
     QVERIFY(result.success);
     QCOMPARE(result.addedCount, 1); // Remote Only → added to local
-    QCOMPARE(result.skippedCount, 0);
+    // The reworked engine classifies the local-only entry (LocalEntry) as Skipped
+    // (no action needed when merging remote→local), so it is counted here.
+    QCOMPARE(result.skippedCount, 1);
     QCOMPARE(result.conflictCount, 0);
 }
 
