@@ -37,6 +37,8 @@ private slots:
     void testContentChangeDetected();
     void testMetadataChangeDetected();
     void testDigestExcludesIntegritySummary();
+    void testAttachmentContentChangeDetected();
+    void testDbMetadataChangeDetected();
 
 private:
     QSharedPointer<Database> makeDb();
@@ -138,6 +140,38 @@ void TestIntegrityDigest::testDigestExcludesIntegritySummary()
     engine.setIntegritySummary(s);
 
     QCOMPARE(IntegrityDigest::metadataRootDigest(engine), digestBefore);
+}
+
+// ---------------------------------------------------------------------------
+// Review #1: attachment CONTENT swaps (same filename, different bytes) and
+// database-metadata edits must be detected by contentDigest.
+// ---------------------------------------------------------------------------
+
+void TestIntegrityDigest::testAttachmentContentChangeDetected()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+    auto* entry = db->rootGroup()->entries().at(0);
+    entry->attachments()->set(QStringLiteral("file.txt"), QByteArray("original content"));
+
+    const QString before = IntegrityDigest::contentDigest(*db, engine);
+    // Same key, different bytes — previously invisible to the digest.
+    entry->attachments()->set(QStringLiteral("file.txt"), QByteArray("TAMPERED content"));
+    const QString after = IntegrityDigest::contentDigest(*db, engine);
+
+    QVERIFY(before != after);
+}
+
+void TestIntegrityDigest::testDbMetadataChangeDetected()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+
+    const QString before = IntegrityDigest::contentDigest(*db, engine);
+    db->metadata()->setName(QStringLiteral("renamed-by-external-tool"));
+    const QString after = IntegrityDigest::contentDigest(*db, engine);
+
+    QVERIFY(before != after);
 }
 
 QTEST_GUILESS_MAIN(TestIntegrityDigest)

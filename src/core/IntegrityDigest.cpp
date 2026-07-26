@@ -21,6 +21,7 @@
 #include "core/Database.h"
 #include "core/Entry.h"
 #include "core/Group.h"
+#include "core/Metadata.h"
 #include "core/TimeInfo.h"
 #include "crypto/CryptoHash.h"
 
@@ -48,6 +49,13 @@ QString IntegrityDigest::contentDigest(const Database& db, const SyncMetadataEng
     QJsonObject root;
     root[QStringLiteral("kind")] = QStringLiteral("LocalVault.content.v1");
 
+    // Database-level metadata (review #1): catch external edits to the database
+    // name / recycle-bin config that entry-level hashing alone would miss.
+    QJsonObject dbMeta;
+    dbMeta[QStringLiteral("name")] = db.metadata()->name();
+    dbMeta[QStringLiteral("recycle_bin_enabled")] = db.metadata()->recycleBinEnabled();
+    root[QStringLiteral("database")] = dbMeta;
+
     QJsonArray entriesArr;
     if (const Group* rootGroup = db.rootGroup()) {
         const auto entries = rootGroup->entriesRecursive(false);
@@ -67,6 +75,18 @@ QString IntegrityDigest::contentDigest(const Database& db, const SyncMetadataEng
                 attrs.insert(k, entry->attributes()->value(k));
             }
             e[QStringLiteral("custom_attributes")] = attrs;
+
+            // Attachment CONTENT hashes (review #1): swapping an attachment's bytes
+            // while keeping its filename was previously invisible to the digest.
+            QJsonObject attachHashes;
+            const auto attachKeys = entry->attachments()->keys();
+            for (const auto& k : attachKeys) {
+                attachHashes.insert(
+                    k,
+                    QString::fromUtf8(
+                        CryptoHash::hash(entry->attachments()->value(k), CryptoHash::Sha256).toHex()));
+            }
+            e[QStringLiteral("attachments")] = attachHashes;
 
             // Custom data (holds KPXC_SYNC_VV version vectors, etc.)
             QJsonObject cdata;

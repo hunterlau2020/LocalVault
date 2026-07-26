@@ -290,27 +290,38 @@ void TestSyncMetadata::testSchemaMigrationV1ToV2()
     QCOMPARE(engine.tombstones().size(), 1);
     QCOMPARE(engine.conflicts().size(), 1);
 
-    // Saving upgrades the schema to v2 and writes integrity_summary (non-destructive).
+    // Saving with an EMPTY integrity_summary does NOT claim v2 (review #4): the
+    // schema must reflect that no baseline has been recorded yet. integrity_summary
+    // is still written (empty), and the old fields are preserved non-destructively.
+    engine.saveToDatabase();
+    QCOMPARE(engine.schemaVersion(), 1);
+
+    {
+        const QString raw = db->metadata()->customData()->value(SyncMetadataEngine::DB_METADATA_KEY);
+        const auto doc = QJsonDocument::fromJson(raw.toUtf8());
+        QVERIFY(doc.isObject());
+        const QJsonObject root = doc.object();
+        QCOMPARE(root.value(QStringLiteral("schema_version")).toInt(), 1);
+        QVERIFY(root.contains(QStringLiteral("integrity_summary"))); // present but empty
+        QCOMPARE(root.value(QStringLiteral("device_registry")).toArray().size(), 1);
+        QCOMPARE(root.value(QStringLiteral("sync_baselines")).toArray().size(), 1);
+        QCOMPARE(root.value(QStringLiteral("tombstones")).toArray().size(), 1);
+        QCOMPARE(root.value(QStringLiteral("conflicts")).toArray().size(), 1);
+    }
+
+    // Once a real baseline is recorded, the schema upgrades to v2.
+    IntegritySummary summary;
+    summary.metadataRootDigest = QStringLiteral("deadbeef");
+    summary.fileSha256 = QStringLiteral("cafef00d");
+    engine.setIntegritySummary(summary);
     engine.saveToDatabase();
     QCOMPARE(engine.schemaVersion(), 2);
 
-    // Re-read the persisted JSON: schema_version==2, integrity_summary present, old fields intact.
-    const QString raw = db->metadata()->customData()->value(SyncMetadataEngine::DB_METADATA_KEY);
-    const auto doc = QJsonDocument::fromJson(raw.toUtf8());
-    QVERIFY(doc.isObject());
-    const QJsonObject root = doc.object();
-    QCOMPARE(root.value(QStringLiteral("schema_version")).toInt(), 2);
-    QVERIFY(root.contains(QStringLiteral("integrity_summary")));
-    QVERIFY(root.value(QStringLiteral("integrity_summary")).isObject());
-    QCOMPARE(root.value(QStringLiteral("device_registry")).toArray().size(), 1);
-    QCOMPARE(root.value(QStringLiteral("sync_baselines")).toArray().size(), 1);
-    QCOMPARE(root.value(QStringLiteral("tombstones")).toArray().size(), 1);
-    QCOMPARE(root.value(QStringLiteral("conflicts")).toArray().size(), 1);
-
-    // A freshly-loaded engine on the upgraded DB reports v2 with empty (but present) summary.
+    // A freshly-loaded engine on the upgraded DB reports v2 with the recorded summary.
     SyncMetadataEngine reloaded(db);
     QCOMPARE(reloaded.schemaVersion(), 2);
-    QVERIFY(reloaded.integritySummary().isEmpty());
+    QVERIFY(!reloaded.integritySummary().isEmpty());
+    QCOMPARE(reloaded.integritySummary().metadataRootDigest, QStringLiteral("deadbeef"));
     QCOMPARE(reloaded.deviceRegistry().size(), 1);
     QCOMPARE(reloaded.conflicts().size(), 1);
 }

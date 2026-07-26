@@ -19,6 +19,7 @@
 
 #include "Utils.h"
 #include "core/Database.h"
+#include "core/ExternalChangeDetector.h"
 #include "core/LifecycleManager.h"
 #include "core/SyncMetadata.h"
 
@@ -116,6 +117,22 @@ int DbCleanupCommand::execute(const QStringList& arguments)
 
     // Set up metadata engine for tombstone cleanup
     SyncMetadataEngine metadataEngine(db);
+
+    // Phase 8 (review #3): block compaction if the database was modified
+    // externally — cleaning up a tampered database could discard evidence or
+    // operate on inconsistent indexes.
+    {
+        ExternalChangeDetector detector(db, &metadataEngine);
+        ExternalChangeReport report;
+        if (!detector.runPreSyncCheck(&report)) {
+            err << QObject::tr("Error: cannot clean up — the database shows signs of "
+                               "external modification. Run `keepassxc-cli db-check` / `repair` first. "
+                               "Findings: %1")
+                       .arg(report.findings.join(QStringLiteral("; ")))
+                << Qt::endl;
+            return EXIT_FAILURE;
+        }
+    }
 
     // Run cleanup
     out << QObject::tr("Running database cleanup...") << Qt::endl;

@@ -31,6 +31,16 @@ class SyncMetadataEngine;
  * input, so persisting the resulting digest is self-consistent (no self-hash
  * oscillation — see the Phase 8 design document, decision A).
  *
+ * THREAT-MODEL BOUNDARY (review #2): these are UNKEYED SHA-256 digests stored in
+ * the same CustomData field as the data they protect. They reliably catch an
+ * "accidental" external change — another tool/process that does not understand
+ * this schema editing or replacing the file (SRS 6.1 "用户混用外部同步工具"). They
+ * do NOT protect against a deliberate attacker who knows the (open-source) format
+ * and simply recomputes the digest after tampering. True tamper-resistance would
+ * require an HMAC/signature, whose key is not available before the database is
+ * unlocked — a chicken-and-egg problem out of scope for V1. UI/wording must not
+ * present this as a security guarantee.
+ *
  *   - metadataRootDigest: device_registry + sync_baselines + tombstones + conflicts
  *   - contentDigest:        entries (fields + custom attrs/data + version vectors)
  *

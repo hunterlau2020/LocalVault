@@ -343,8 +343,11 @@ void SyncMetadataEngine::saveToDatabase()
         return;
     }
 
-    // v2 introduces the integrity_summary baseline object; upgrade on save.
-    if (m_schemaVersion < 2) {
+    // v2 introduces the integrity_summary baseline object. Only claim v2 once a
+    // baseline has actually been recorded — a database whose integrity_summary is
+    // still empty should not be marked v2 just because v2-capable code saved it
+    // (review #4: schema_version should reflect actual metadata evolution).
+    if (m_schemaVersion < 2 && !m_integritySummary.isEmpty()) {
         m_schemaVersion = 2;
     }
 
