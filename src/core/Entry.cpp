@@ -1107,6 +1107,11 @@ void Entry::beginUpdate()
     m_tmpHistoryItem->m_attributes->copyDataFrom(m_attributes);
     m_tmpHistoryItem->m_attachments->copyDataFrom(m_attachments);
     m_tmpHistoryItem->m_autoTypeAssociations->copyDataFrom(m_autoTypeAssociations);
+    // Copy customData so history snapshots carry the entry's sync version vector
+    // (KPXC_SYNC_VV). Without this, SyncEngine::findCommonAncestor cannot locate
+    // a shared ancestor in history and AutoMerge (non-overlapping concurrent
+    // edits) is unreachable — every concurrent change escalates to a Conflict.
+    m_tmpHistoryItem->m_customData->copyDataFrom(m_customData);
 
     m_modifiedSinceBegin = false;
 }
