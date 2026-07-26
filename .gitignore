@@ -5,7 +5,6 @@ release*/
 .idea/
 *.iml
 *.kdev4
-*.md
 \.vscode/
 *.swp
 
@@ -33,6 +32,5 @@ out/
 vcpkg_installed*/
 
 # Project docs & AI config (not committed)
-/CLAUDE.md
 docs/*.txt
 .claude/
