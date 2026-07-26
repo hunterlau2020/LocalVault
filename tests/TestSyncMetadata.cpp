@@ -211,9 +211,9 @@ void TestSyncMetadata::testIntegritySummaryJsonRoundTrip()
     IntegritySummary s;
     s.fileSha256 = QStringLiteral("abc123def");
     s.fileSize = 4096;
-    s.fileMtimeUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 0, 0), QTimeZone::UTC);
+    s.fileMtimeUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 0, 0), QTimeZone::utc());
     s.metadataRootDigest = QStringLiteral("feedface");
-    s.checkedAtUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 5, 0), QTimeZone::UTC);
+    s.checkedAtUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 5, 0), QTimeZone::utc());
 
     QVERIFY(!s.isEmpty());
     const QJsonObject json = s.toJson();
