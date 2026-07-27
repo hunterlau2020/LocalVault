@@ -21,10 +21,17 @@
 #include "Utils.h"
 #include "core/ConflictResolver.h"
 #include "core/Database.h"
+#include "core/RemoteConfigService.h"
+#include "core/RemoteStorageAdapter.h"
 #include "core/SyncEngine.h"
 
 #include <QCommandLineParser>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QUuid>
+
+#include <memory>
 
 SyncCommand::SyncCommand()
 {
@@ -38,6 +45,11 @@ SyncCommand::SyncCommand()
         QStringList() << QStringLiteral("r") << QStringLiteral("remote"),
         QObject::tr("Path of the remote database."),
         QStringLiteral("path")));
+    options.append(QCommandLineOption(
+        QStringList() << QStringLiteral("remote-storage"),
+        QObject::tr("Name of a configured remote storage backend (Phase 10). "
+                    "Mutually exclusive with --remote."),
+        QStringLiteral("name")));
     options.append(Command::KeyFileOption);
     options.append(Command::NoPasswordOption);
     options.append(Command::YubiKeyOption);
@@ -69,9 +81,16 @@ int SyncCommand::execute(const QStringList& arguments)
     const QStringList args = parser->positionalArguments();
     const QString localPath = args.at(0);
     const QString remotePath = parser->value(QStringLiteral("remote"));
+    const QString remoteStorageName = parser->value(QStringLiteral("remote-storage"));
 
-    if (remotePath.isEmpty()) {
-        err << QObject::tr("Error: --remote/-r path is required.") << Qt::endl;
+    // --remote and --remote-storage are mutually exclusive (review 🟡#5).
+    if (!remotePath.isEmpty() && !remoteStorageName.isEmpty()) {
+        err << QObject::tr("Error: --remote and --remote-storage are mutually exclusive.") << Qt::endl;
+        return EXIT_FAILURE;
+    }
+    if (remotePath.isEmpty() && remoteStorageName.isEmpty()) {
+        err << QObject::tr("Error: provide either --remote/-r <path> or --remote-storage <name>.")
+            << Qt::endl;
         return EXIT_FAILURE;
     }
 
@@ -79,10 +98,23 @@ int SyncCommand::execute(const QStringList& arguments)
         err << QObject::tr("Error: local database not found: %1").arg(localPath) << Qt::endl;
         return EXIT_FAILURE;
     }
-    if (!QFileInfo::exists(remotePath)) {
-        err << QObject::tr("Error: remote database not found: %1").arg(remotePath) << Qt::endl;
-        return EXIT_FAILURE;
-    }
+
+    // Phase 10 remote-storage state. The RAII guard removes the fetched temp file
+    // on every return path (no manual cleanup at each early return needed).
+    QString fetchedTempPath;
+    struct TempFileGuard
+    {
+        const QString& path;
+        ~TempFileGuard()
+        {
+            if (!path.isEmpty()) {
+                QFile::remove(path);
+            }
+        }
+    } fetchedTempGuard{fetchedTempPath};
+    std::unique_ptr<CommandDelegatingAdapter> remoteAdapter;
+    const bool isRemoteStorage = !remoteStorageName.isEmpty();
+    QString effectiveRemotePath = remotePath;
 
     // --- Open both databases ------------------------------------------------
     out << QObject::tr("Opening local database...") << Qt::endl;
@@ -95,8 +127,34 @@ int SyncCommand::execute(const QStringList& arguments)
         return EXIT_FAILURE;
     }
 
+    // Resolve the effective remote path: fetch via adapter (--remote-storage) or
+    // use the local path (--remote).
+    if (isRemoteStorage) {
+        RemoteConfigService svc(localDb);
+        const RemoteStorageConfig cfg = svc.get(remoteStorageName);
+        if (cfg.name.isEmpty()) {
+            err << QObject::tr("Error: no remote storage backend named '%1'.").arg(remoteStorageName)
+                << Qt::endl;
+            return EXIT_FAILURE;
+        }
+        fetchedTempPath = QDir::temp().absoluteFilePath(
+            QStringLiteral("remote-sync-%1.kdbx").arg(QUuid::createUuid().toString(QUuid::Id128)));
+        QFile::remove(fetchedTempPath);
+        remoteAdapter = std::make_unique<CommandDelegatingAdapter>(cfg);
+        out << QObject::tr("Fetching remote database via '%1'...").arg(cfg.name) << Qt::endl;
+        QString fetchErr;
+        if (!remoteAdapter->fetch(fetchedTempPath, &fetchErr)) {
+            err << QObject::tr("Failed to fetch remote database: %1").arg(fetchErr) << Qt::endl;
+            return EXIT_FAILURE;
+        }
+        effectiveRemotePath = fetchedTempPath;
+    } else if (!QFileInfo::exists(remotePath)) {
+        err << QObject::tr("Error: remote database not found: %1").arg(remotePath) << Qt::endl;
+        return EXIT_FAILURE;
+    }
+
     out << QObject::tr("Opening remote database...") << Qt::endl;
-    auto remoteDb = Utils::unlockDatabase(remotePath,
+    auto remoteDb = Utils::unlockDatabase(effectiveRemotePath,
                                           !parser->isSet(Command::NoPasswordOption),
                                           parser->value(QStringLiteral("remote-key-file")),
                                           {},
@@ -183,6 +241,17 @@ int SyncCommand::execute(const QStringList& arguments)
     if (!localDb->save(Database::Atomic, {}, &errorMsg)) {
         err << QObject::tr("Failed to save local database: %1").arg(errorMsg) << Qt::endl;
         return EXIT_FAILURE;
+    }
+
+    // --- Upload back (remote-storage only). MUST run after save() (review 🟡#6).
+    if (isRemoteStorage) {
+        out << QObject::tr("Uploading local database back to '%1'...").arg(remoteStorageName) << Qt::endl;
+        QString uploadErr;
+        if (!remoteAdapter->upload(localPath, &uploadErr)) {
+            err << QObject::tr("Local database saved, but failed to upload back: %1").arg(uploadErr)
+                << Qt::endl;
+            return EXIT_FAILURE;
+        }
     }
 
     out << QObject::tr("Sync complete. Local database saved.") << Qt::endl;
