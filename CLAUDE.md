@@ -78,7 +78,7 @@ cmake -G "Visual Studio 17 2022" -A x64 \
   -DWINSDK="C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22000.0/um/x64/WindowsApp.lib" \
   -B build
 
-cmake --build build --config Release --parallel
+cmake --build build --config Release
 ```
 
 ### 静态构建（无 Qt/VC++ DLL 依赖，独立运行）
@@ -95,7 +95,7 @@ cmake -G "Visual Studio 17 2022" -A x64 \
   -DBOTAN_LIBRARY_DEBUG="E:/works/LocalVault/build/vcpkg_installed/x64-windows-static/debug/lib/botan-3.lib" \
   -B build
 
-cmake --build build --config Release --parallel
+cmake --build build --config Release
 
 # 产物: build/src/Release/KeePassXC.exe (37MB)
 #       build/src/cli/Release/keepassxc-cli.exe (19MB)
@@ -131,10 +131,11 @@ ctest -C Release -R <test_name>
 
 ### 修改后
 1. 运行相关测试
-2. 确保 MSVC 编译无警告
-3. 集成测试: `ctest -C Release`
-4. 更新 ctags: `ctags -R .`
-5. 变更数据库结构需通知用户
+2. **禁止使用并发编译**（如 `-j` 或 `--parallel`），必须使用单线程编译以避免资源消耗过高或编译冲突
+3. 确保 MSVC 编译无警告
+4. 集成测试: `ctest -C Release`
+5. 更新 ctags: `ctags -R .`
+6. 变更数据库结构需通知用户
 
 ### 提交规范
 - 不提交 .md 文档、二进制文件、data/ 目录

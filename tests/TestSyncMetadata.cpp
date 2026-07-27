@@ -20,6 +20,7 @@
 #include "core/Entry.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
+#include "core/Config.h"
 
 #include <QTest>
 #include <QJsonDocument>
@@ -189,6 +190,9 @@ void TestSyncMetadata::testVersionVectorMerge()
 
 void TestSyncMetadata::testEmptyEngine()
 {
+    // Clear any persistent local device ID from previous tests or runs to ensure test isolation.
+    Config::instance()->set(Config::Sync_LocalDeviceId, QString{});
+
     auto db = QSharedPointer<Database>(new Database());
     db->metadata()->setName(QStringLiteral("test"));
 
