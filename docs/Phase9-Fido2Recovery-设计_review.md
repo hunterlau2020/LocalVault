@@ -263,3 +263,162 @@ explicit recovery mode       -> 校验主密码及恢复密钥包
 9. 补充上述负向、安全、持久化和端到端测试。
 
 在这些条件满足前，本评审保持“拒绝通过”。
+
+---
+
+## 5. 第一次复审（2026-07-28）
+
+复审对象：`docs/Phase9-Fido2Recovery-设计.md` 修订版
+
+复审基线：`37578927 docs(phase9): 按专家评审修订设计(fail-closed+恢复编排+9A/9B拆分)`
+
+复审结论：**仍不通过，需二次修订**
+
+### 5.1 总体评价
+
+修订版已经解决或正确响应以下初审问题：
+
+- adapter unavailable 由 fail-open 改为 fail-closed；
+- Phase 9A 禁止生产绑定，不再宣称已交付 FIDO2 AND 解锁；
+- 修正了使用移动后 `key` 以及传递 `QString**` 的问题；
+- 引入 Normal/Recovery 打开模式，恢复凭据成为打开请求的一部分；
+- 增加 versioned JSON、WebAuthn 必需字段、单次恢复令牌和负向测试；
+- 将基础设施预埋与可用安全功能拆分为 Phase 9A/9B。
+
+上述方向正确，但修订版仍有 4 个 P0 和 2 个 P1 问题。特别是失败清理伪代码无法适配现有 `Database` 类型、恢复状态无法在所述插入点可靠落盘、“原子绑定”实际包含两次保存，以及 `state`/`enabled` 双重语义不一致。因此暂不能进入 Phase 9B 实现。
+
+### 5.2 剩余阻断问题
+
+#### P0-R1：`clearDecryptedData()` 与现有成员类型不兼容
+
+修订版位置：第 78-92 行。
+
+现有 `Database` 成员为：
+
+```cpp
+QPointer<Metadata> const m_metadata;
+QPointer<Group> m_rootGroup;
+```
+
+因此修订版伪代码中的以下调用不可编译：
+
+```cpp
+m_rootGroup.reset();
+m_metadata.reset(new Metadata(this));
+```
+
+现有 `Database::releaseData()` 已提供大部分敏感状态清理，但它会创建新的空根组，`rootGroup()` 不会返回 null。这也与修订版计划的测试断言相冲突。
+
+整改要求：
+
+- 基于现有 `releaseData()` 或明确的新 API 设计真实可编译的统一失败清理。
+- 列出必须清除的 `DatabaseData`、Metadata、Group、DeletedObjects、缓存、文件 hash 和 watcher 状态。
+- 明确清理后 `Database` 对象的不变量；测试必须验证真实不变量，不能假设 `rootGroup() == nullptr`。
+- 对 assertion 失败、取消、adapter unavailable、恢复失败和状态保存失败执行同一清理路径。
+
+#### P0-R2：恢复成功状态无法在当前打开插入点可靠持久化
+
+修订版位置：第 58-72、136-141 行。
+
+恢复成功要求原子持久化：
+
+- `envelope.consumed = true`
+- `binding.state = rebind_required`
+
+但计划中的认证门位于 `readDatabase()` 之后、现有 `setFilePath(filePath)` 和 `dbFile.close()` 之前。默认构造后调用 `open(filePath, key)` 时，目标路径尚未写入 `DatabaseData`，原始文件句柄也仍然打开。在 Windows 上，这还可能阻止原子文件替换。
+
+如果只修改内存然后发出 `databaseOpened`，进程退出或崩溃后恢复词仍可重放，`rebind_required` 也会丢失。
+
+整改要求：
+
+```text
+解密到隔离对象
+  -> 验证 FIDO2 或恢复凭据
+  -> 关闭源文件并建立目标路径
+  -> 原子保存 consumed + rebind_required
+  -> 保存成功后才发布数据库并发出 databaseOpened
+```
+
+- 状态保存失败必须导致恢复打开失败。
+- 不得在状态尚未持久化时向用户或集成服务报告恢复成功。
+- 增加 Windows 文件句柄、只读数据库、磁盘满、原子替换失败和进程中断测试。
+
+#### P0-R3：“原子绑定”实际执行两次保存
+
+修订版位置：第 117-128 行。
+
+当前流程先保存 `state=binding`，再保存 `state=bound`。两次保存之间崩溃会留下持久化中间态，因此不具备原子性。
+
+整改要求：
+
+- 在内存完成 credential 注册、恢复词生成和用户确认。
+- 最后一次数据库保存同时写入最终 `state=bound` 和 recovery envelope。
+- 若最终保存失败，尝试撤销外部 credential；无法撤销时将其作为不影响数据库安全的孤立凭据处理并给出提示。
+- 若仍需要持久化 `binding` 中间态，必须把流程定义为可恢复的两阶段事务，而不能称为原子保存。
+
+#### P0-R4：状态模型与门判断仍不一致
+
+修订版位置：第 41、59、100-115、165、190 行。
+
+新 JSON 示例使用 `state` 作为持久字段，却仍在多处使用 `binding.enabled` 或 `enabled` 描述是否启用。实现者无法确定：
+
+- 是否同时保存 `state` 和 `enabled`；
+- 哪个字段是唯一真相源；
+- 两个字段冲突时采用何种 fail-closed 行为。
+
+整改要求：
+
+- 删除 `enabled`，使用 `state` 作为唯一真相源。
+- 明确每种状态的打开策略：
+
+```text
+disabled                -> 不要求 FIDO2
+bound                   -> 必须完成 FIDO2 assertion
+recovery_mode           -> 仅允许显式 Recovery 打开
+rebind_required         -> 明确定义当前及下一次打开策略
+binding/unknown/invalid -> fail-closed
+```
+
+- 对缺字段、未知 schema、未知状态和非法状态组合统一拒绝。
+
+### 5.3 其他高风险问题
+
+#### P1-R1：`OpenAuthContext` 长期保存普通 `QStringList`
+
+修订版位置：第 47-60、147-152 行。
+
+修订版把恢复词存入 `Database::m_authContext` 的 `QStringList`，同时又要求恢复词使用 `Botan::secure_vector`，二者相互冲突。成员式 setter 还可能使一次 Recovery 模式残留到后续打开请求。
+
+整改要求：
+
+- 认证上下文应是单次 `open()` 调用的不可复制、短生命周期参数。
+- 不把恢复词或 Recovery 模式存为 `Database` 长生命周期成员。
+- 输入解析、中间 entropy 和验证结束后的缓冲必须自动擦除。
+- 无论打开成功、失败或取消，都必须重置认证上下文。
+
+#### P1-R2：`rebind_required` 的下一次打开策略未闭环
+
+恢复成功后，旧恢复密钥已经 consumed，而新 FIDO2 设备尚未绑定。如果应用崩溃、自动锁定或用户关闭数据库，下一次打开可能同时失去旧设备和恢复入口。
+
+整改要求：
+
+- 明确 `rebind_required` 下当前会话和下一次打开的认证规则。
+- 选择并记录一种不会造成永久锁定或长期降级的策略，例如：
+  - 当前恢复会话内必须完成重绑或明确关闭 FIDO2；
+  - 在完成处理前限制自动锁定/关闭，并给出不可忽略的安全提示；
+  - 或生成有明确期限和使用次数限制的新恢复能力。
+- 增加恢复后立即崩溃、自动锁定、关闭数据库和重启应用的端到端测试。
+
+### 5.4 二次复审准入条件
+
+二次修订至少需要：
+
+1. 给出基于现有 `Database` 成员和 `releaseData()` 的可编译失败清理方案。
+2. 重排恢复打开时序，保证 consumed 与 rebind_required 在发布数据库前原子落盘。
+3. 把绑定改为单次最终保存，或正式设计可恢复的两阶段事务。
+4. 删除 `enabled`/`state` 双重语义，以 `state` 作为唯一真相源。
+5. 将认证上下文改为单次调用、可擦除且不会残留的参数。
+6. 定义 `rebind_required` 遇到锁定、关闭、崩溃及下次打开时的完整策略。
+7. 补充对应的负向、故障注入和 Windows 文件操作测试。
+
+在以上条件满足前，第一次复审结论保持：**不通过**。
