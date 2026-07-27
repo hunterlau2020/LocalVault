@@ -27,17 +27,23 @@ Phase 8（外部变更检测）已完成「本地可信」这道关。但当前�
 
 **`IRemoteStorageAdapter`**（抽象接口，FSD §12.3 的 V1 子集）：
 
+> **评审 #1 对齐**：`RemoteStorageConfig` 的 JSON schema **与现有 `gui/remote/RemoteSettings` 完全一致**（字段名、msec 单位、顶层 JSON 数组），使 GUI 与 CLI 共享同一个 `KPXC_REMOTE_SYNC_SETTINGS` blob，互不覆盖。
+
 ```cpp
 struct RemoteStorageConfig {
-    QString name;                 // 远端配置名（如 "my-dropbox"）
-    QString downloadCommand;      // 下载命令，{FILE} 占位符 = 本地临时文件路径
-    QString uploadCommand;        // 上传命令，{FILE} 占位符 = 本地库/临时文件路径
-    int downloadTimeoutSec = 30;  // 默认 30s（SRS/FSD 约束）
-    int uploadTimeoutSec = 30;
-    QJsonObject toJson() const;
+    QString name;                   // 远端配置名（如 "my-dropbox"）
+    QString downloadCommand;        // 下载命令，{FILE}/{TEMP_DATABASE} 占位符
+    QString downloadCommandInput;   // 写入进程 stdin 的内容（评审 #2：sftp 批量/密码 piping 需要）
+    int downloadTimeoutMsec = 30000;// 默认 30s（评审 #1：单位 msec，对齐 RemoteSettings）
+    QString uploadCommand;
+    QString uploadCommandInput;
+    int uploadTimeoutMsec = 30000;
+    QJsonObject toJson() const;     // 顶层 JSON 数组的一项（非 {remotes:[]} 对象）
     static RemoteStorageConfig fromJson(const QJsonObject&);
 };
+```
 
+```cpp
 class IRemoteStorageAdapter {
 public:
     virtual ~IRemoteStorageAdapter() = default;
@@ -50,8 +56,9 @@ public:
 
 **`CommandDelegatingAdapter`**（方案 B 的唯一具体实现）：
 - 持有 `RemoteStorageConfig`。
-- `fetch`/`upload`：把 `{FILE}` 替换为目标路径，`QProcess` 跑命令，`waitForFinished(timeout)` 控超时，`kill()` 实现 cancel。镜像 `RemoteHandler`/`RemoteProcess` 的逻辑但精简、核心层、无 gui 依赖。
-- `testConnection`：跑 downloadCommand 到临时文件，成功即连通。
+- `fetch`/`upload`：把 `{FILE}`/`{TEMP_DATABASE}` 替换为目标路径；**评审 #2**：`start()` 后若 `*CommandInput` 非空则 `write(input+"\n")` + `closeWriteChannel()`（镜像 `RemoteHandler.cpp:63-67`）。
+- **评审 #3（安全）**：用 `QProcess::startCommand(command)`（Qt6，内部按空白拆分 program+args，**不经过 shell**，避免 shell 注入）；`{FILE}` 路径用 `QProcess::splitCommand` 安全引用。代码注释写明「命令经 QProcess 非 shell 执行，但仍信任用户自配命令本身」。`waitForFinished(timeoutMsec)` 控超时，`kill()` 实现 cancel。
+- `testConnection`（**评审 #4**）：跑 downloadCommand 到临时文件，成功判定 = `exitCode==0` **且** `QFileInfo(tempPath).size() > 0`（防 rclone 网络断开 exit 0 但空文件误判）。
 
 ### 配置存储（复用 Protected CustomData）
 
@@ -71,6 +78,8 @@ public:
 **SyncCommand 扩展**（`src/cli/SyncCommand.cpp`）：
 - 新增 `--remote-storage <name>` 选项：从 CustomData 取该远端配置 → `CommandDelegatingAdapter::fetch` 下载到临时 `.kdbx` → 用临时路径走**既有** `unlockDatabase` + `analyzeDiffs` + `applyMerges` 流程 → 本地 `save` 后 `CommandDelegatingAdapter::upload` 回推。
 - 保留 `--remote <本地路径>`（向后兼容本地↔本地同步）。
+- **评审 #5**：`--remote-storage` 与 `--remote` **互斥**——同时传报错退出（`return EXIT_FAILURE`）。
+- **评审 #6**：upload 回推必须在 `localDb->save()` 成功**之后**（代码加注释 `// upload must happen after save()`）。
 - 临时文件用 `QDir::temp()` + uuid（参考 `RemoteHandler::getTempFileLocation`），用完清理。
 
 ### SyncBaseline 激活（可选 follow-up）
@@ -139,3 +148,19 @@ public:
 3. **断点续传（>10MB）**：方案 B 不提供原生断点续传——大文件续传依赖外部工具自身能力（rclone 支持断点）。TC-RMT-008 由外部工具覆盖。若需原生续传，后续走方案 C 的 WebDavAdapter（HTTP Range）。
 4. **进度回调**：QProcess 有 stdout/stderr 信号，可桥接（rclone `--progress`）。V1 先做成功/失败 + stderr 透传，精细进度条留 follow-up。
 5. **平台**：Windows `cmd /c`、POSIX `sh -c` 执行命令——跨平台注意（V1 文档给两系示例）。
+
+---
+
+## 评审反馈处理（2026-07-27，对应 phase10_design_review.md）
+
+设计方向已获评审 ✅ 通过。6 个反馈点已并入上文（标注「评审 #N」）：
+
+| # | 类别 | 处理 |
+|---|---|---|
+| 🔴1 | JSON schema 与 RemoteSettings 冲突 | `RemoteStorageConfig` 对齐 RemoteSettings：保留 `commandInput`、msec 单位、顶层 JSON 数组——GUI/CLI 共享同一 `KPXC_REMOTE_SYNC_SETTINGS` blob |
+| 🔴2 | 缺 stdin 支持 | 保留 `downloadCommandInput`/`uploadCommandInput`；fetch/upload 里 `write(input+"\n")`+`closeWriteChannel`（镜像 RemoteHandler） |
+| 🔴3 | QProcess 调用模式/注入 | 用 `QProcess::startCommand`（Qt6 非 shell 拆分）；代码注释写安全边界；`remote add` 打印警告 |
+| 🟡4 | testConnection 判定弱 | 成功 = `exitCode==0` 且 `QFileInfo.size()>0` |
+| 🟡5 | --remote-storage/--remote 互斥 | 同时传报错退出 |
+| 🟡6 | upload 须在 save 后 | 流程明确 + 代码注释 `// upload must happen after save()` |
+
