@@ -39,6 +39,8 @@ private slots:
     void testDigestExcludesIntegritySummary();
     void testAttachmentContentChangeDetected();
     void testDbMetadataChangeDetected();
+    void testGroupRenameDetected();
+    void testTagsChangeDetected();
 
 private:
     QSharedPointer<Database> makeDb();
@@ -136,7 +138,6 @@ void TestIntegrityDigest::testDigestExcludesIntegritySummary()
     IntegritySummary s;
     s.fileSha256 = QStringLiteral("deadbeef");
     s.metadataRootDigest = QStringLiteral("cafef00d");
-    s.fileSize = 9999;
     engine.setIntegritySummary(s);
 
     QCOMPARE(IntegrityDigest::metadataRootDigest(engine), digestBefore);
@@ -169,6 +170,33 @@ void TestIntegrityDigest::testDbMetadataChangeDetected()
 
     const QString before = IntegrityDigest::contentDigest(*db, engine);
     db->metadata()->setName(QStringLiteral("renamed-by-external-tool"));
+    const QString after = IntegrityDigest::contentDigest(*db, engine);
+
+    QVERIFY(before != after);
+}
+
+// Review #3: group-structure and tag edits must be detected.
+
+void TestIntegrityDigest::testGroupRenameDetected()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+
+    const QString before = IntegrityDigest::contentDigest(*db, engine);
+    db->rootGroup()->setName(QStringLiteral("renamed-group"));
+    const QString after = IntegrityDigest::contentDigest(*db, engine);
+
+    QVERIFY(before != after);
+}
+
+void TestIntegrityDigest::testTagsChangeDetected()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+    auto* entry = db->rootGroup()->entries().at(0);
+
+    const QString before = IntegrityDigest::contentDigest(*db, engine);
+    entry->setTags(QStringLiteral("work,urgent"));
     const QString after = IntegrityDigest::contentDigest(*db, engine);
 
     QVERIFY(before != after);

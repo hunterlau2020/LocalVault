@@ -45,10 +45,8 @@ struct ExternalChangeReport
     bool fileHashChanged = false;     // content digest mismatch
     bool metadataMismatch = false;    // metadata root digest mismatch
 
-    // Advisory / heuristic signals
+    // Heuristic signals
     bool riskyDirectoryDetected = false;
-    bool fileSizeChanged = false;
-    bool fileMtimeChanged = false;
     bool indexInconsistency = false;  // deep check: tombstone/conflict referential issue
 
     ChangeSeverity severity = ChangeSeverity::None;

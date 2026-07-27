@@ -116,15 +116,27 @@ int RepairCommand::execute(const QStringList& arguments)
     SyncMetadataEngine metadataEngine(db);
     ExternalChangeDetector detector(db, &metadataEngine);
 
-    // Determine the plan: explicit --type wins, otherwise use the detected suggestion.
+    // Always detect first, so the suggested plan can be shown even with --type.
+    const auto report = detector.detectExternalChange();
+    const RepairPlan suggested = detector.buildRepairPlan(report);
+
+    // Determine the plan to apply: explicit --type wins; otherwise the suggestion.
     RepairPlan plan;
+    bool haveExplicitConsent = parser->isSet(AutoOption);
     if (parser->isSet(TypeOption)) {
-        plan.planType = parsePlanType(parser->value(TypeOption));
-        plan.requireUserConfirmation = false;
+        const QString val = parser->value(TypeOption);
+        plan.planType = parsePlanType(val);
+        if (plan.planType == RepairPlanType::None) {
+            err << QObject::tr("Error: unknown repair type '%1'. Valid values: "
+                               "rebuild-index, reset-sync-baseline, mark-new-branch.")
+                       .arg(val)
+                << Qt::endl;
+            return EXIT_FAILURE;
+        }
         plan.steps << QObject::tr("explicit repair type: %1").arg(planTypeString(plan.planType));
+        haveExplicitConsent = true;
     } else {
-        const auto report = detector.detectExternalChange();
-        plan = detector.buildRepairPlan(report);
+        plan = suggested;
     }
 
     out << QObject::tr("Repair plan: %1").arg(planTypeString(plan.planType)) << Qt::endl;
@@ -139,6 +151,15 @@ int RepairCommand::execute(const QStringList& arguments)
 
     if (plan.planType == RepairPlanType::None) {
         out << QObject::tr("No repair needed.") << Qt::endl;
+        return EXIT_SUCCESS;
+    }
+
+    // Require explicit consent (--type or --auto) before mutating the database.
+    // Without either, only the plan is shown (review #2: --auto was ignored).
+    if (!haveExplicitConsent) {
+        out << QObject::tr("Plan shown only — pass --auto to apply the suggested plan, "
+                           "or --type <type> to apply a specific repair.")
+            << Qt::endl;
         return EXIT_SUCCESS;
     }
 

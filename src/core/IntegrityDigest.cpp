@@ -37,6 +37,36 @@ namespace
         const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
         return QString::fromUtf8(CryptoHash::hash(json, CryptoHash::Sha256).toHex());
     }
+
+    // Recursively serialize the group tree (review #3): names, nesting, entry
+    // placement, and group-level custom data — all previously invisible to the
+    // digest, so renaming/restructuring groups or moving entries went undetected.
+    QJsonObject serializeGroup(const Group* g)
+    {
+        QJsonObject obj;
+        obj[QStringLiteral("uuid")] = g->uuid().toString(QUuid::Id128);
+        obj[QStringLiteral("name")] = g->name();
+
+        QJsonArray entryUuids;
+        for (const Entry* e : g->entries()) {
+            entryUuids.append(e->uuid().toString(QUuid::Id128));
+        }
+        obj[QStringLiteral("entries")] = entryUuids;
+
+        QJsonObject cdata;
+        const auto cdKeys = g->customData()->keys();
+        for (const auto& k : cdKeys) {
+            cdata.insert(k, g->customData()->value(k));
+        }
+        obj[QStringLiteral("custom_data")] = cdata;
+
+        QJsonArray childrenArr;
+        for (const Group* c : g->children()) {
+            childrenArr.append(serializeGroup(c));
+        }
+        obj[QStringLiteral("children")] = childrenArr;
+        return obj;
+    }
 } // namespace
 
 QString IntegrityDigest::metadataRootDigest(const SyncMetadataEngine& engine)
@@ -99,9 +129,16 @@ QString IntegrityDigest::contentDigest(const Database& db, const SyncMetadataEng
             const TimeInfo ti = entry->timeInfo();
             e[QStringLiteral("created")] = ti.creationTime().toUTC().toString(Qt::ISODate);
             e[QStringLiteral("modified")] = ti.lastModificationTime().toUTC().toString(Qt::ISODate);
+            e[QStringLiteral("tags")] = entry->tags();
+            e[QStringLiteral("expires")] = ti.expires();
+            if (ti.expires()) {
+                e[QStringLiteral("expiry_time")] = ti.expiryTime().toUTC().toString(Qt::ISODate);
+            }
 
             entriesArr.append(e);
         }
+        // Group tree (review #3): names, nesting, entry placement, group custom data.
+        root[QStringLiteral("groups")] = serializeGroup(rootGroup);
     }
     root[QStringLiteral("entries")] = entriesArr;
 

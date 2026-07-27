@@ -24,6 +24,9 @@
 
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 const QCommandLineOption DbCheckCommand::DeepOption(
     QStringList() << QStringLiteral("deep"),
@@ -100,13 +103,29 @@ int DbCheckCommand::execute(const QStringList& arguments)
     const auto report = detector.detectExternalChange(deep);
 
     if (parser->isSet(JsonOption)) {
-        out << "{\n";
-        out << "  \"severity\": \"" << severityString(report.severity) << "\",\n";
-        out << "  \"file_hash_changed\": " << (report.fileHashChanged ? "true" : "false") << ",\n";
-        out << "  \"metadata_mismatch\": " << (report.metadataMismatch ? "true" : "false") << ",\n";
-        out << "  \"index_inconsistency\": " << (report.indexInconsistency ? "true" : "false") << ",\n";
-        out << "  \"risky_directory\": " << (report.riskyDirectoryDetected ? "true" : "false") << "\n";
-        out << "}\n";
+        // Full machine-readable report (review #4): booleans, diagnostic digests,
+        // findings, and suggested actions.
+        QJsonObject json;
+        json[QStringLiteral("severity")] = severityString(report.severity);
+        json[QStringLiteral("file_hash_changed")] = report.fileHashChanged;
+        json[QStringLiteral("metadata_mismatch")] = report.metadataMismatch;
+        json[QStringLiteral("index_inconsistency")] = report.indexInconsistency;
+        json[QStringLiteral("risky_directory")] = report.riskyDirectoryDetected;
+        json[QStringLiteral("recorded_content_digest")] = report.recordedContentDigest;
+        json[QStringLiteral("actual_content_digest")] = report.actualContentDigest;
+        json[QStringLiteral("recorded_metadata_digest")] = report.recordedMetadataDigest;
+        json[QStringLiteral("actual_metadata_digest")] = report.actualMetadataDigest;
+        QJsonArray findingsArr;
+        for (const auto& f : report.findings) {
+            findingsArr.append(f);
+        }
+        json[QStringLiteral("findings")] = findingsArr;
+        QJsonArray actionsArr;
+        for (const auto& a : report.suggestedActions) {
+            actionsArr.append(a);
+        }
+        json[QStringLiteral("suggested_actions")] = actionsArr;
+        out << QJsonDocument(json).toJson(QJsonDocument::Compact) << Qt::endl;
     } else {
         out << QObject::tr("External change check (deep=%1):")
                    .arg(deep ? QObject::tr("yes") : QObject::tr("no"))

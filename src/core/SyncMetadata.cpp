@@ -180,10 +180,6 @@ QJsonObject IntegritySummary::toJson() const
 {
     QJsonObject obj;
     obj[QStringLiteral("file_sha256")] = fileSha256;
-    obj[QStringLiteral("file_size")] = fileSize;
-    if (fileMtimeUtc.isValid()) {
-        obj[QStringLiteral("file_mtime_utc")] = fileMtimeUtc.toUTC().toString(Qt::ISODate);
-    }
     obj[QStringLiteral("metadata_root_digest")] = metadataRootDigest;
     if (checkedAtUtc.isValid()) {
         obj[QStringLiteral("checked_at_utc")] = checkedAtUtc.toUTC().toString(Qt::ISODate);
@@ -195,8 +191,6 @@ IntegritySummary IntegritySummary::fromJson(const QJsonObject& obj)
 {
     IntegritySummary s;
     s.fileSha256 = obj.value(QStringLiteral("file_sha256")).toString();
-    s.fileSize = obj.value(QStringLiteral("file_size")).toVariant().toLongLong();
-    s.fileMtimeUtc = QDateTime::fromString(obj.value(QStringLiteral("file_mtime_utc")).toString(), Qt::ISODate);
     s.metadataRootDigest = obj.value(QStringLiteral("metadata_root_digest")).toString();
     s.checkedAtUtc = QDateTime::fromString(obj.value(QStringLiteral("checked_at_utc")).toString(), Qt::ISODate);
     return s;

@@ -25,7 +25,6 @@
 #include "core/SnapshotService.h"
 
 #include <QDateTime>
-#include <QFileInfo>
 #include <QSet>
 #include <QUuid>
 
@@ -99,22 +98,8 @@ ExternalChangeReport ExternalChangeDetector::detectExternalChange(bool deep) con
         report.findings << QStringLiteral("metadata root digest mismatch: sync metadata was modified outside LocalVault");
     }
 
-    // Advisory: file size/mtime (only meaningful when a file path exists).
+    // Heuristic: risky storage location.
     const QString path = m_db->filePath();
-    if (!path.isEmpty()) {
-        const QFileInfo fi(path);
-        if (fi.exists()) {
-            if (baseline.fileSize != 0 && fi.size() != baseline.fileSize) {
-                report.fileSizeChanged = true;
-                report.findings << QStringLiteral("file size changed (%1 -> %2)").arg(baseline.fileSize).arg(fi.size());
-            }
-            if (baseline.fileMtimeUtc.isValid() && fi.lastModified().toUTC() != baseline.fileMtimeUtc) {
-                report.fileMtimeChanged = true;
-                report.findings << QStringLiteral("file modification time changed");
-            }
-        }
-    }
-
     if (isRiskyDirectory(path)) {
         report.riskyDirectoryDetected = true;
         report.findings << QStringLiteral("database resides in a synced/risky directory");
@@ -130,8 +115,7 @@ ExternalChangeReport ExternalChangeDetector::detectExternalChange(bool deep) con
         report.severity = ChangeSeverity::High;
     } else if (report.metadataMismatch) {
         report.severity = ChangeSeverity::Medium;
-    } else if (report.riskyDirectoryDetected || report.fileSizeChanged || report.fileMtimeChanged
-               || report.indexInconsistency) {
+    } else if (report.riskyDirectoryDetected || report.indexInconsistency) {
         report.severity = ChangeSeverity::Low;
     }
 
@@ -160,15 +144,6 @@ void ExternalChangeDetector::recordBaseline()
     s.metadataRootDigest = IntegrityDigest::metadataRootDigest(*m_metadataEngine);
     s.fileSha256 = IntegrityDigest::contentDigest(*m_db, *m_metadataEngine);
     s.checkedAtUtc = QDateTime::currentDateTimeUtc();
-
-    const QString path = m_db->filePath();
-    if (!path.isEmpty()) {
-        const QFileInfo fi(path);
-        if (fi.exists()) {
-            s.fileSize = fi.size();
-            s.fileMtimeUtc = fi.lastModified().toUTC();
-        }
-    }
     m_metadataEngine->setIntegritySummary(s);
 }
 

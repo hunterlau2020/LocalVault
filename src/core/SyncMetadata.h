@@ -111,13 +111,16 @@ struct ConflictRecord
  * Stored as the "integrity_summary" object inside KPXC_SYNC_METADATA (schema v2).
  * The digests are computed over canonical logical content with THIS object
  * excluded, so persisting them is self-consistent (no self-hash oscillation).
- * file_size / file_mtime are advisory quick-check signals, not cryptographic.
+ *
+ * Only cryptographic digests are stored. file_size / file_mtime were considered
+ * as advisory signals but dropped (review #1, option B): they cannot be made
+ * self-consistent within a single save (collecting them pre-write reads the OLD
+ * file; post-write requires a second write), and a stale advisory caused a
+ * false-positive Low warning on every normal open.
  */
 struct IntegritySummary
 {
     QString fileSha256;         // hex SHA-256 of canonical logical DB content
-    qint64 fileSize = 0;        // observed on-disk file size (advisory)
-    QDateTime fileMtimeUtc;     // observed on-disk mtime (advisory)
     QString metadataRootDigest; // hex SHA-256 of the metadata subset
     QDateTime checkedAtUtc;     // when this baseline was recorded
 

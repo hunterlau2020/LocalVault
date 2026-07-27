@@ -210,8 +210,6 @@ void TestSyncMetadata::testIntegritySummaryJsonRoundTrip()
 {
     IntegritySummary s;
     s.fileSha256 = QStringLiteral("abc123def");
-    s.fileSize = 4096;
-    s.fileMtimeUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 0, 0), QTimeZone::utc());
     s.metadataRootDigest = QStringLiteral("feedface");
     s.checkedAtUtc = QDateTime(QDate(2026, 7, 26), QTime(12, 5, 0), QTimeZone::utc());
 
@@ -220,8 +218,6 @@ void TestSyncMetadata::testIntegritySummaryJsonRoundTrip()
     const IntegritySummary restored = IntegritySummary::fromJson(json);
 
     QCOMPARE(restored.fileSha256, s.fileSha256);
-    QCOMPARE(restored.fileSize, s.fileSize);
-    QCOMPARE(restored.fileMtimeUtc, s.fileMtimeUtc);
     QCOMPARE(restored.metadataRootDigest, s.metadataRootDigest);
     QCOMPARE(restored.checkedAtUtc, s.checkedAtUtc);
     QVERIFY(!restored.isEmpty());
@@ -241,7 +237,6 @@ void TestSyncMetadata::testIntegritySummaryPersistence()
     IntegritySummary s;
     s.fileSha256 = QStringLiteral("deadbeef");
     s.metadataRootDigest = QStringLiteral("cafef00d");
-    s.fileSize = 1024;
     engine.setIntegritySummary(s);
     engine.saveToDatabase();
 
@@ -250,7 +245,6 @@ void TestSyncMetadata::testIntegritySummaryPersistence()
     QVERIFY(!reloaded.integritySummary().isEmpty());
     QCOMPARE(reloaded.integritySummary().fileSha256, QStringLiteral("deadbeef"));
     QCOMPARE(reloaded.integritySummary().metadataRootDigest, QStringLiteral("cafef00d"));
-    QCOMPARE(reloaded.integritySummary().fileSize, 1024);
 
     // clearIntegritySummary + save → reloaded is empty again.
     engine.clearIntegritySummary();
