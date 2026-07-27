@@ -97,13 +97,18 @@ int RepairCommand::execute(const QStringList& arguments)
     }
 
     // Validate --type early (review3 🔴#3): fail fast on bad input before
-    // prompting for a password / touching the database.
-    if (parser->isSet(TypeOption) && parsePlanType(parser->value(TypeOption)) == RepairPlanType::None) {
-        err << QObject::tr("Error: unknown repair type '%1'. Valid values: "
-                           "rebuild-index, reset-sync-baseline, mark-new-branch.")
-                   .arg(parser->value(TypeOption))
-            << Qt::endl;
-        return EXIT_FAILURE;
+    // prompting for a password / touching the database. Cache the parsed value
+    // (review3-followup #1) to avoid calling parsePlanType twice.
+    RepairPlanType explicitType = RepairPlanType::None;
+    if (parser->isSet(TypeOption)) {
+        explicitType = parsePlanType(parser->value(TypeOption));
+        if (explicitType == RepairPlanType::None) {
+            err << QObject::tr("Error: unknown repair type '%1'. Valid values: "
+                               "rebuild-index, reset-sync-baseline, mark-new-branch.")
+                       .arg(parser->value(TypeOption))
+                << Qt::endl;
+            return EXIT_FAILURE;
+        }
     }
 
     const QStringList args = parser->positionalArguments();
@@ -134,8 +139,8 @@ int RepairCommand::execute(const QStringList& arguments)
     const bool shouldExecute = parser->isSet(TypeOption) || parser->isSet(AutoOption);
     RepairPlan plan;
     if (parser->isSet(TypeOption)) {
-        // --type was validated above; safe to use directly.
-        plan.planType = parsePlanType(parser->value(TypeOption));
+        // --type was validated above; use the cached parsed value.
+        plan.planType = explicitType;
         plan.steps << QObject::tr("explicit repair type: %1").arg(planTypeString(plan.planType));
     } else {
         plan = suggested;

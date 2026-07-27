@@ -220,8 +220,15 @@ void TestIntegrityDigest::testDeepGroupTreeDoesNotCrash()
     }
 
     // Must return a valid digest without crashing.
-    const QString d = IntegrityDigest::contentDigest(*db, engine);
-    QCOMPARE(d.length(), 64);
+    const QString d1 = IntegrityDigest::contentDigest(*db, engine);
+    QCOMPARE(d1.length(), 64);
+
+    // Modifications beyond the truncation depth (>256) must not change the
+    // digest. `parent` is the deepest group (level 299, depth 300) — well past
+    // truncation, so its serialization is replaced by {"_truncated": true}.
+    parent->setName(QStringLiteral("modified-beyond-truncation"));
+    const QString d2 = IntegrityDigest::contentDigest(*db, engine);
+    QCOMPARE(d2, d1);
 }
 
 QTEST_GUILESS_MAIN(TestIntegrityDigest)

@@ -84,6 +84,11 @@ int DbCheckCommand::execute(const QStringList& arguments)
         return EXIT_FAILURE;
     }
 
+    // --pretty only affects --json output; warn if given alone (review3-followup #3).
+    if (parser->isSet(PrettyOption) && !parser->isSet(JsonOption)) {
+        err << QObject::tr("Warning: --pretty has no effect without --json.") << Qt::endl;
+    }
+
     const QStringList args = parser->positionalArguments();
     const QString dbPath = args.at(0);
 
