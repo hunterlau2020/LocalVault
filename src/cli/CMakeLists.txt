@@ -41,6 +41,7 @@ set(cli_SOURCES
         Move.cpp
         Open.cpp
         Remove.cpp
+        RemoteCommand.cpp
         RemoveGroup.cpp
         RepairCommand.cpp
         Search.cpp

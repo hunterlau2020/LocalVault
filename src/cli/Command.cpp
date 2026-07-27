@@ -48,6 +48,7 @@
 #include "DbCleanupCommand.h"
 #include "DbCheckCommand.h"
 #include "RepairCommand.h"
+#include "RemoteCommand.h"
 #include "Utils.h"
 
 #include <QCommandLineParser>
@@ -197,6 +198,7 @@ namespace Commands
         s_commands.insert(QStringLiteral("db-cleanup"), QSharedPointer<Command>(new DbCleanupCommand()));
         s_commands.insert(QStringLiteral("db-check"), QSharedPointer<Command>(new DbCheckCommand()));
         s_commands.insert(QStringLiteral("repair"), QSharedPointer<Command>(new RepairCommand()));
+        s_commands.insert(QStringLiteral("remote"), QSharedPointer<Command>(new RemoteCommand()));
 
         if (interactive) {
             s_commands.insert(QStringLiteral("exit"), QSharedPointer<Command>(new Exit("exit")));
