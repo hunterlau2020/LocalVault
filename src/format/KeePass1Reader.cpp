@@ -195,7 +195,8 @@ KeePass1Reader::readDatabase(QIODevice* device, const QString& password, QIODevi
     for (Entry* entry : asConst(entries)) {
         if (isMetaStream(entry)) {
             parseMetaStream(entry);
-
+            m_entryUuids.remove(m_entryUuids.key(entry));
+            m_entryGroupIds.remove(entry);
             delete entry;
         } else {
             quint32 groupId = m_entryGroupIds.value(entry);
@@ -499,6 +500,7 @@ Group* KeePass1Reader::readGroup(QIODevice* cipherStream)
         case 0x0005: {
             if (fieldSize != 5) {
                 raiseError(tr("Incorrect group access time field size"));
+                return nullptr;
             }
             QDateTime dateTime = dateFromPackedStruct(fieldData);
             if (dateTime.isValid()) {
@@ -509,6 +511,7 @@ Group* KeePass1Reader::readGroup(QIODevice* cipherStream)
         case 0x0006: {
             if (fieldSize != 5) {
                 raiseError(tr("Incorrect group expiry time field size"));
+                return nullptr;
             }
             QDateTime dateTime = dateFromPackedStruct(fieldData);
             if (dateTime.isValid()) {

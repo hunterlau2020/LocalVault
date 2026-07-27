@@ -61,7 +61,6 @@ set(core_SOURCES
         core/Totp.cpp
         core/Translator.cpp
         cli/Utils.cpp
-        cli/TextStream.cpp
         crypto/Crypto.cpp
         crypto/CryptoHash.cpp
         crypto/Random.cpp
@@ -243,8 +242,11 @@ endif()
 
 if(UNIX AND NOT APPLE)
     list(APPEND gui_SOURCES
+            gui/osutils/nixutils/DesktopPortal.cpp
             gui/osutils/nixutils/DeviceListenerLibUsb.cpp
+            gui/osutils/nixutils/GlobalShortcutsPortal.cpp
             gui/osutils/nixutils/NixUtils.cpp
+            gui/osutils/nixutils/RemoteDesktopPortal.cpp
             gui/osutils/nixutils/ScreenLockListenerDBus.cpp
     )
     if("${CMAKE_SYSTEM}" MATCHES "Linux")
@@ -269,6 +271,26 @@ if(UNIX AND NOT APPLE)
     qt6_add_dbus_interface(core_SOURCES
         quickunlock/dbus/org.freedesktop.PolicyKit1.Authority.xml
         polkit_dbus
+    )
+    qt6_add_dbus_interface(core_SOURCES
+        gui/osutils/nixutils/dbus/org.freedesktop.portal.Request.xml
+        xdp_request
+    )
+    qt6_add_dbus_interface(core_SOURCES
+        gui/osutils/nixutils/dbus/org.freedesktop.portal.Session.xml
+        xdp_session
+    )
+    qt6_add_dbus_interface(core_SOURCES
+        gui/osutils/nixutils/dbus/org.freedesktop.portal.GlobalShortcuts.xml
+        xdp_globalshortcuts
+    )
+    qt6_add_dbus_interface(core_SOURCES
+        gui/osutils/nixutils/dbus/org.freedesktop.portal.RemoteDesktop.xml
+        xdp_remotedesktop
+    )
+    qt6_add_dbus_interface(core_SOURCES
+        gui/osutils/nixutils/dbus/org.freedesktop.portal.Clipboard.xml
+        xdp_clipboard
     )
 endif()
 
@@ -516,7 +538,10 @@ if(WIN32)
     else()
         # Deploy used libraries into build directory for debugging
         add_custom_command(TARGET ${PROGNAME} POST_BUILD
-            COMMAND ${WINDEPLOYQT_EXE} --dir $<TARGET_FILE_DIR:${PROGNAME}> $<TARGET_FILE:${PROGNAME}>)
+            COMMAND ${WINDEPLOYQT_EXE}
+                --dir $<TARGET_FILE_DIR:${PROGNAME}>
+                $<IF:$<CONFIG:Debug>,--debug,--release>
+                $<TARGET_FILE:${PROGNAME}>)
     endif()
 
     # We have to copy the license file in the configuration phase.
@@ -536,7 +561,7 @@ if(WIN32)
     set(CPACK_GENERATOR "ZIP;WIX")
     set(CPACK_COMPONENTS_ALL "")
     set(CPACK_STRIP_FILES OFF)
-    set(CPACK_PACKAGE_FILE_NAME "${PROGNAME}-${KEEPASSXC_VERSION}-${OUTPUT_FILE_POSTFIX}")
+    set(CPACK_PACKAGE_FILE_NAME "${PROGNAME}-${KEEPASSXC_VERSION}-${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
     set(CPACK_PACKAGE_INSTALL_DIRECTORY ${PROGNAME})
     set(CPACK_PACKAGE_VERSION ${KEEPASSXC_VERSION_CLEAN})
     set(CPACK_PACKAGE_VENDOR "${PROGNAME} Team")
@@ -583,16 +608,32 @@ if(WIN32)
             file(DOWNLOAD "https://curl.se/ca/cacert.pem" "${CMAKE_BINARY_DIR}/ca-bundle.crt" TLS_VERIFY ON)
             install(FILES "${CMAKE_BINARY_DIR}/ca-bundle.crt" DESTINATION "ssl/certs")
         endif()
-    elseif(NOT VCPKG_INSTALLED_DIR)
+    else()
+        # Use windeployqt.exe to setup Qt dependencies
+        install(CODE "
+            if(\"\${CMAKE_INSTALL_CONFIG_NAME}\" STREQUAL \"Debug\")
+                set(_wdqt_mode --debug)
+            else()
+                set(_wdqt_mode --release)
+            endif()
+            execute_process(
+                COMMAND ${WINDEPLOYQT_EXE} ${PROGNAME}.exe \${_wdqt_mode}
+                WORKING_DIRECTORY \${CMAKE_INSTALL_PREFIX}
+                OUTPUT_QUIET
+                RESULT_VARIABLE _wdqt_result
+            )
+            if(NOT \${_wdqt_result} EQUAL 0)
+                message(FATAL_ERROR \"windeployqt failed with exit code \${_wdqt_result}\")
+            endif()"
+            COMPONENT Runtime)
+    endif()
+
+    if(NOT VCPKG_INSTALLED_DIR)
         install(CODE "set(gp_tool \"objdump\")" COMPONENT Runtime)
 
         # Deploy all 3rd party library dependencies first
         install(CODE "include(BundleUtilities)
                       fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/${PROGNAME}.exe\" \"\" \"\")"
-                COMPONENT Runtime)
-
-        # Use windeployqt.exe to setup Qt dependencies
-        install(CODE "execute_process(COMMAND ${WINDEPLOYQT_EXE} ${PROGNAME}.exe ${WINDEPLOYQT_MODE} WORKING_DIRECTORY \${CMAKE_INSTALL_PREFIX} OUTPUT_QUIET)"
                 COMPONENT Runtime)
 
         # install OpenSSL library

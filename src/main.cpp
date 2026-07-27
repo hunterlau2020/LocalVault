@@ -72,6 +72,7 @@ int main(int argc, char** argv)
 
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    QGuiApplication::setDesktopFileName("org.keepassxc.KeePassXC");
 #if defined(Q_OS_WIN)
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 #endif
@@ -84,8 +85,10 @@ int main(int argc, char** argv)
 
     // HACK: Prevent long-running threads from deadlocking the program with only 1 CPU
     // See https://github.com/keepassxreboot/keepassxc/issues/10391
-    if (QThreadPool::globalInstance()->maxThreadCount() < 2) {
-        QThreadPool::globalInstance()->setMaxThreadCount(2);
+    // HACK: increased to a minimum of 3 threads
+    // See https://github.com/keepassxreboot/keepassxc/issues/12909
+    if (QThreadPool::globalInstance()->maxThreadCount() < 3) {
+        QThreadPool::globalInstance()->setMaxThreadCount(3);
     }
 
     QCommandLineParser parser;
@@ -197,8 +200,6 @@ int main(int argc, char** argv)
 
     // Apply the configured theme before creating any GUI elements
     app.applyTheme();
-
-    QGuiApplication::setDesktopFileName(app.property("KPXC_QUALIFIED_APPNAME").toString() + QStringLiteral(".desktop"));
 
     Application::bootstrap(config()->get(Config::GUI_Language).toString());
 
