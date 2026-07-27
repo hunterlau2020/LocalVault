@@ -29,6 +29,7 @@ public:
 
     static const QCommandLineOption DeepOption;
     static const QCommandLineOption JsonOption;
+    static const QCommandLineOption PrettyOption;
 };
 
 #endif // KEEPASSXC_DBCHECKCOMMAND_H

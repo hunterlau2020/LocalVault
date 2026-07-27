@@ -131,13 +131,12 @@ int RepairCommand::execute(const QStringList& arguments)
     const RepairPlan suggested = detector.buildRepairPlan(report);
 
     // Determine the plan to apply: explicit --type wins; otherwise the suggestion.
+    const bool shouldExecute = parser->isSet(TypeOption) || parser->isSet(AutoOption);
     RepairPlan plan;
-    bool haveExplicitConsent = parser->isSet(AutoOption);
     if (parser->isSet(TypeOption)) {
         // --type was validated above; safe to use directly.
         plan.planType = parsePlanType(parser->value(TypeOption));
         plan.steps << QObject::tr("explicit repair type: %1").arg(planTypeString(plan.planType));
-        haveExplicitConsent = true;
     } else {
         plan = suggested;
     }
@@ -159,7 +158,7 @@ int RepairCommand::execute(const QStringList& arguments)
 
     // Require explicit consent (--type or --auto) before mutating the database.
     // Without either, only the plan is shown (review #2: --auto was ignored).
-    if (!haveExplicitConsent) {
+    if (!shouldExecute) {
         out << QObject::tr("Plan shown only — pass --auto to apply the suggested plan, "
                            "or --type <type> to apply a specific repair.")
             << Qt::endl;

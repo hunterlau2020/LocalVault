@@ -36,6 +36,10 @@ const QCommandLineOption DbCheckCommand::JsonOption(
     QStringList() << QStringLiteral("json"),
     QObject::tr("Output the report as machine-readable JSON."));
 
+const QCommandLineOption DbCheckCommand::PrettyOption(
+    QStringList() << QStringLiteral("pretty"),
+    QObject::tr("Pretty-print JSON output (indented). Use with --json."));
+
 DbCheckCommand::DbCheckCommand()
 {
     name = QStringLiteral("db-check");
@@ -46,6 +50,7 @@ DbCheckCommand::DbCheckCommand()
 
     options.append(DeepOption);
     options.append(JsonOption);
+    options.append(PrettyOption);
     options.append(Command::KeyFileOption);
     options.append(Command::NoPasswordOption);
     options.append(Command::YubiKeyOption);
@@ -125,7 +130,9 @@ int DbCheckCommand::execute(const QStringList& arguments)
             actionsArr.append(a);
         }
         json[QStringLiteral("suggested_actions")] = actionsArr;
-        out << QJsonDocument(json).toJson(QJsonDocument::Compact) << Qt::endl;
+        const QJsonDocument::JsonFormat fmt = parser->isSet(PrettyOption) ? QJsonDocument::Indented
+                                                                           : QJsonDocument::Compact;
+        out << QJsonDocument(json).toJson(fmt) << Qt::endl;
     } else {
         out << QObject::tr("External change check (deep=%1):")
                    .arg(deep ? QObject::tr("yes") : QObject::tr("no"))
