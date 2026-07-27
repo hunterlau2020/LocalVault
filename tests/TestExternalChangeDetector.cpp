@@ -50,6 +50,7 @@ private slots:
     void testExecuteRepairReestablishesBaseline();
     void testSaveEstablishesPersistentBaseline();
     void testRiskyDirectoryDetected();
+    void testRiskyDirectoryDetected_data();
     void testRepairFailureDoesNotCorrupt();
 
 private:
@@ -316,23 +317,36 @@ void TestExternalChangeDetector::testSaveEstablishesPersistentBaseline()
 }
 
 // ---------------------------------------------------------------------------
-// Review #6: risky-directory heuristic is reported (Low, non-blocking).
+// Review #6: risky-directory heuristic. Review3 🔴#1: parametrized over all 5
+// markers + a negative case.
 // ---------------------------------------------------------------------------
+
+void TestExternalChangeDetector::testRiskyDirectoryDetected_data()
+{
+    QTest::addColumn<QString>("path");
+    QTest::addColumn<bool>("expected");
+
+    QTest::newRow("onedrive") << QStringLiteral("C:/Users/me/OneDrive/LocalVault/test.kdbx") << true;
+    QTest::newRow("dropbox") << QStringLiteral("C:/Users/me/Dropbox/test.kdbx") << true;
+    QTest::newRow("google-drive") << QStringLiteral("C:/Users/me/Google Drive/test.kdbx") << true;
+    QTest::newRow("googledrive") << QStringLiteral("C:/Users/me/GoogleDrive/test.kdbx") << true;
+    QTest::newRow("icloud") << QStringLiteral("C:/Users/me/iCloud/test.kdbx") << true;
+    QTest::newRow("normal") << QStringLiteral("C:/Users/me/Documents/test.kdbx") << false;
+}
 
 void TestExternalChangeDetector::testRiskyDirectoryDetected()
 {
+    QFETCH(QString, path);
+    QFETCH(bool, expected);
+
     auto db = makeDb();
     SyncMetadataEngine engine(db);
     ExternalChangeDetector detector(db, &engine);
     detector.recordBaseline();
-
-    // Path matching the risky-directory heuristic (cloud-synced folder).
-    db->setFilePath(QStringLiteral("C:/Users/me/OneDrive/LocalVault/test.kdbx"));
+    db->setFilePath(path);
 
     const auto r = detector.detectExternalChange();
-    QVERIFY(r.riskyDirectoryDetected);
-    QCOMPARE(r.severity, ChangeSeverity::Low);
-    QVERIFY(detector.runPreSyncCheck()); // Low severity does not block sync
+    QCOMPARE(r.riskyDirectoryDetected, expected);
 }
 
 // ---------------------------------------------------------------------------

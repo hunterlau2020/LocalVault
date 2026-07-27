@@ -96,6 +96,16 @@ int RepairCommand::execute(const QStringList& arguments)
         return EXIT_FAILURE;
     }
 
+    // Validate --type early (review3 🔴#3): fail fast on bad input before
+    // prompting for a password / touching the database.
+    if (parser->isSet(TypeOption) && parsePlanType(parser->value(TypeOption)) == RepairPlanType::None) {
+        err << QObject::tr("Error: unknown repair type '%1'. Valid values: "
+                           "rebuild-index, reset-sync-baseline, mark-new-branch.")
+                   .arg(parser->value(TypeOption))
+            << Qt::endl;
+        return EXIT_FAILURE;
+    }
+
     const QStringList args = parser->positionalArguments();
     const QString dbPath = args.at(0);
 
@@ -124,15 +134,8 @@ int RepairCommand::execute(const QStringList& arguments)
     RepairPlan plan;
     bool haveExplicitConsent = parser->isSet(AutoOption);
     if (parser->isSet(TypeOption)) {
-        const QString val = parser->value(TypeOption);
-        plan.planType = parsePlanType(val);
-        if (plan.planType == RepairPlanType::None) {
-            err << QObject::tr("Error: unknown repair type '%1'. Valid values: "
-                               "rebuild-index, reset-sync-baseline, mark-new-branch.")
-                       .arg(val)
-                << Qt::endl;
-            return EXIT_FAILURE;
-        }
+        // --type was validated above; safe to use directly.
+        plan.planType = parsePlanType(parser->value(TypeOption));
         plan.steps << QObject::tr("explicit repair type: %1").arg(planTypeString(plan.planType));
         haveExplicitConsent = true;
     } else {

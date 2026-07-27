@@ -47,6 +47,7 @@ private slots:
     void testAdd();
     void testAddGroup();
     void testAnalyze();
+    void testRepairInvalidType();
     void testAttachmentExport();
     void testAttachmentImport();
     void testAttachmentRemove();

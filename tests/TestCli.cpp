@@ -50,6 +50,7 @@
 #include "cli/Open.h"
 #include "cli/Remove.h"
 #include "cli/RemoveGroup.h"
+#include "cli/RepairCommand.h"
 #include "cli/Search.h"
 #include "cli/Show.h"
 #include "cli/TextStream.h"
@@ -448,6 +449,18 @@ void TestCli::testAnalyze()
     QVERIFY(output.contains("123"));
     m_stderr->readLine(); // Skip password prompt
     QCOMPARE(m_stderr->readAll(), QByteArray());
+}
+
+// Review3 🔴#3: an invalid --type must error out (exit failure) before unlock.
+
+void TestCli::testRepairInvalidType()
+{
+    RepairCommand repairCmd;
+    // --type validation runs before unlock, so no real DB / password is needed.
+    const int ret = execCmd(repairCmd, {"repair", "dummy.kdbx", "--type", "rebuild-indx"});
+    QVERIFY(ret != 0);
+    QVERIFY2(m_stderr->readAll().contains("unknown repair type"),
+             "stderr should report the unknown repair type");
 }
 
 void TestCli::testAttachmentExport()

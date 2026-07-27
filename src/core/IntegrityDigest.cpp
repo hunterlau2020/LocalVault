@@ -41,9 +41,15 @@ namespace
     // Recursively serialize the group tree (review #3): names, nesting, entry
     // placement, and group-level custom data — all previously invisible to the
     // digest, so renaming/restructuring groups or moving entries went undetected.
-    QJsonObject serializeGroup(const Group* g)
+    // \p depth guards against maliciously deep nesting (review3 🔴#2): a crafted
+    // KDBX could otherwise cause unbounded recursion / stack overflow.
+    QJsonObject serializeGroup(const Group* g, int depth = 0)
     {
         QJsonObject obj;
+        if (depth > 256) {
+            obj[QStringLiteral("_truncated")] = true;
+            return obj;
+        }
         obj[QStringLiteral("uuid")] = g->uuid().toString(QUuid::Id128);
         obj[QStringLiteral("name")] = g->name();
 
@@ -62,7 +68,7 @@ namespace
 
         QJsonArray childrenArr;
         for (const Group* c : g->children()) {
-            childrenArr.append(serializeGroup(c));
+            childrenArr.append(serializeGroup(c, depth + 1));
         }
         obj[QStringLiteral("children")] = childrenArr;
         return obj;

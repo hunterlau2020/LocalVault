@@ -41,6 +41,7 @@ private slots:
     void testDbMetadataChangeDetected();
     void testGroupRenameDetected();
     void testTagsChangeDetected();
+    void testDeepGroupTreeDoesNotCrash();
 
 private:
     QSharedPointer<Database> makeDb();
@@ -200,6 +201,27 @@ void TestIntegrityDigest::testTagsChangeDetected()
     const QString after = IntegrityDigest::contentDigest(*db, engine);
 
     QVERIFY(before != after);
+}
+
+// Review3 🔴#2: a pathologically deep group tree must not stack-overflow the
+// recursive serializer (depth guard truncates beyond 256 levels).
+
+void TestIntegrityDigest::testDeepGroupTreeDoesNotCrash()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+
+    Group* parent = db->rootGroup();
+    for (int i = 0; i < 300; ++i) {
+        auto* child = new Group();
+        child->setName(QStringLiteral("level%1").arg(i));
+        child->setParent(parent);
+        parent = child;
+    }
+
+    // Must return a valid digest without crashing.
+    const QString d = IntegrityDigest::contentDigest(*db, engine);
+    QCOMPARE(d.length(), 64);
 }
 
 QTEST_GUILESS_MAIN(TestIntegrityDigest)
