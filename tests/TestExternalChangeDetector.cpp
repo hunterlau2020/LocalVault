@@ -16,6 +16,7 @@
  */
 
 #include "core/ExternalChangeDetector.h"
+#include "core/IntegrityDigest.h"
 #include "core/SyncMetadata.h"
 #include "core/Database.h"
 #include "core/Entry.h"
@@ -48,6 +49,8 @@ private slots:
     void testExecuteMarkNewBranch();
     void testExecuteRepairReestablishesBaseline();
     void testSaveEstablishesPersistentBaseline();
+    void testRiskyDirectoryDetected();
+    void testRepairFailureDoesNotCorrupt();
 
 private:
     QSharedPointer<Database> makeDb();
@@ -310,6 +313,53 @@ void TestExternalChangeDetector::testSaveEstablishesPersistentBaseline()
     QCOMPARE(r.severity, ChangeSeverity::None);
 
     QFile::remove(path);
+}
+
+// ---------------------------------------------------------------------------
+// Review #6: risky-directory heuristic is reported (Low, non-blocking).
+// ---------------------------------------------------------------------------
+
+void TestExternalChangeDetector::testRiskyDirectoryDetected()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+    ExternalChangeDetector detector(db, &engine);
+    detector.recordBaseline();
+
+    // Path matching the risky-directory heuristic (cloud-synced folder).
+    db->setFilePath(QStringLiteral("C:/Users/me/OneDrive/LocalVault/test.kdbx"));
+
+    const auto r = detector.detectExternalChange();
+    QVERIFY(r.riskyDirectoryDetected);
+    QCOMPARE(r.severity, ChangeSeverity::Low);
+    QVERIFY(detector.runPreSyncCheck()); // Low severity does not block sync
+}
+
+// ---------------------------------------------------------------------------
+// Review #6 / §6.9.3: a failed repair must not corrupt the database.
+// ---------------------------------------------------------------------------
+
+void TestExternalChangeDetector::testRepairFailureDoesNotCorrupt()
+{
+    auto db = makeDb();
+    SyncMetadataEngine engine(db);
+    engine.registerOrLoadCurrentDevice(QStringLiteral("test-device"));
+    ExternalChangeDetector detector(db, &engine);
+    detector.recordBaseline();
+
+    const QString contentBefore = IntegrityDigest::contentDigest(*db, engine);
+
+    // A detector without a metadata engine cannot execute a repair and must
+    // fail cleanly rather than partially mutate the database.
+    ExternalChangeDetector noEngineDetector(db, nullptr);
+    RepairPlan plan;
+    plan.planType = RepairPlanType::RebuildIndex;
+    QString err;
+    QVERIFY(!noEngineDetector.executeRepairPlan(plan, &err));
+    QVERIFY(!err.isEmpty());
+
+    // Logical content must be unchanged (no partial / corrupting mutation).
+    QCOMPARE(IntegrityDigest::contentDigest(*db, engine), contentBefore);
 }
 
 QTEST_GUILESS_MAIN(TestExternalChangeDetector)
