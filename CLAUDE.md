@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **FIDO2** 增强解锁认证 + **恢复密钥包**
 - **数据生命周期管理**（快照/历史/墓碑清理）
 
-当前 Phase 1-7、11 已完成，Phase 8-10 待开发。
+当前 Phase 1-8、10、11 已完成（含上游同步），Phase 9（FIDO2）暂缓（两轮设计评审未通过，待 webauthn.dll 硬件支持后从 9A 起步）。
 
 ### 仓库
 

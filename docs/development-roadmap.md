@@ -30,7 +30,7 @@
 | **Phase 6** ✅ | **Conflict Resolver** | 冲突建模、保留本地/远端/手动合并/生成副本 | ConflictItem, ConflictResolutionService, resolveKeepLocal/Remote/ManualMerge/CreateCopy |
 | **Phase 7** ✅ | **Snapshot & History Manager** | 数据库级快照创建/恢复、条目历史版本管理、清理策略 | SnapshotService, SnapshotRestoreService, HistoryRetentionService |
 | **Phase 8** ✅ | **External Change Detector** | 内容/元数据规范摘要检测、风险目录、修复模式、db-check/repair CLI | ExternalChangeDetector, IntegrityDigest, CommandDelegatingAdapter |
-| **Phase 9** 🔲 | **FIDO2 & Recovery Manager** | FIDO2 绑定验证、数据库解锁增强、恢复密钥包生成与恢复 | Fido2RegistrationService, Fido2AssertionService, RecoveryKeyService |
+| **Phase 9** ⏸ | **FIDO2 & Recovery Manager**（暂缓） | FIDO2 绑定验证、数据库解锁增强、恢复密钥包生成与恢复 | 两轮设计评审（fail-closed/恢复编排/9A-9B拆分），待 webauthn.dll 硬件支持后从 9A 起步 |
 | **Phase 10** ✅ | **Remote Storage Adapter** | 命令委托适配器(QProcess 非 shell)、cloud-agnostic(rclone/BaiduPCS-Go/scp/curl)、Protected CustomData 存配置、remote CLI | IRemoteStorageAdapter, CommandDelegatingAdapter, RemoteConfigService |
 | **Phase 11** ✅ | **Lifecycle Manager** | 快照/历史/墓碑清理、数据库压缩、孤儿版本清理 | LifecycleManager, TombstoneCleanupService |
 
@@ -103,7 +103,7 @@ KeePassXC 本地编译，创建/打开/保存数据库，熟悉代码结构。
 - `RepairPlan` — REBUILD_INDEX / RESET_SYNC_BASELINE / MARK_NEW_BRANCH
 - 分层策略: 快速检测（哈希/大小/时间）→ 深度检测（条目级比对）
 
-## Phase 9 🔲 — FIDO2 与恢复管理器
+## Phase 9 ⏸ — FIDO2 与恢复管理器（暂缓）
 
 - `Fido2BindingInfo` — credential_id, device_label, bound_at, enabled
 - `RecoveryKeyEnvelope` — mnemonic (12/24 词), verification_hash
