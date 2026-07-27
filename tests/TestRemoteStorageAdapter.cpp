@@ -16,6 +16,8 @@
  */
 
 #include "core/RemoteStorageAdapter.h"
+#include "core/RemoteConfigService.h"
+#include "core/Database.h"
 
 #include <QByteArray>
 #include <QDir>
@@ -93,6 +95,8 @@ private slots:
     void testTimeout();
     void testInvalidCommandFails();
     void testStdinInput();
+    void testConfigServiceUpsertGetRemove();
+    void testConfigServiceEmptyDb();
 };
 
 void TestRemoteStorageAdapter::initTestCase()
@@ -213,6 +217,51 @@ void TestRemoteStorageAdapter::testStdinInput()
 
     QFile::remove(src);
     QFile::remove(tmp);
+}
+
+// --- RemoteConfigService -----------------------------------------------------
+
+void TestRemoteStorageAdapter::testConfigServiceUpsertGetRemove()
+{
+    auto db = QSharedPointer<Database>::create();
+    RemoteConfigService svc(db);
+
+    QVERIFY(svc.load().isEmpty());
+
+    RemoteStorageConfig c;
+    c.name = QStringLiteral("dropbox");
+    c.downloadCommand = QStringLiteral("rclone copyto dropbox:db.kdbx {TEMP_DATABASE}");
+    c.uploadCommand = QStringLiteral("rclone copyto {TEMP_DATABASE} dropbox:db.kdbx");
+    QVERIFY(svc.upsert(c));
+    QCOMPARE(svc.load().size(), 1);
+    QCOMPARE(svc.get(QStringLiteral("dropbox")).downloadCommand, c.downloadCommand);
+
+    // Update existing (same name → no duplication).
+    c.downloadCommand = QStringLiteral("rclone copyto dropbox:db2.kdbx {TEMP_DATABASE}");
+    svc.upsert(c);
+    QCOMPARE(svc.load().size(), 1);
+    QCOMPARE(svc.get(QStringLiteral("dropbox")).downloadCommand, c.downloadCommand);
+
+    // Add a second remote.
+    RemoteStorageConfig c2;
+    c2.name = QStringLiteral("baidu");
+    c2.downloadCommand = QStringLiteral("BaiduPCS-Go d /db.kdbx");
+    svc.upsert(c2);
+    QCOMPARE(svc.load().size(), 2);
+
+    // Remove.
+    QVERIFY(svc.remove(QStringLiteral("dropbox")));
+    QCOMPARE(svc.load().size(), 1);
+    QVERIFY(svc.get(QStringLiteral("dropbox")).name.isEmpty());
+    QVERIFY(!svc.remove(QStringLiteral("nonexistent")));
+}
+
+void TestRemoteStorageAdapter::testConfigServiceEmptyDb()
+{
+    auto db = QSharedPointer<Database>::create();
+    RemoteConfigService svc(db);
+    QVERIFY(svc.load().isEmpty());
+    QVERIFY(svc.get(QStringLiteral("anything")).name.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestRemoteStorageAdapter)
