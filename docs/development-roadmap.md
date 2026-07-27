@@ -29,9 +29,9 @@
 |---|---|---|---|
 | **Phase 6** ✅ | **Conflict Resolver** | 冲突建模、保留本地/远端/手动合并/生成副本 | ConflictItem, ConflictResolutionService, resolveKeepLocal/Remote/ManualMerge/CreateCopy |
 | **Phase 7** ✅ | **Snapshot & History Manager** | 数据库级快照创建/恢复、条目历史版本管理、清理策略 | SnapshotService, SnapshotRestoreService, HistoryRetentionService |
-| **Phase 8** 🔲 | **External Change Detector** | 文件哈希/元数据一致性/风险目录检测、修复模式 | FileHashMonitor, MetadataConsistencyChecker, DeepValidationService, RepairModeService |
+| **Phase 8** ✅ | **External Change Detector** | 内容/元数据规范摘要检测、风险目录、修复模式、db-check/repair CLI | ExternalChangeDetector, IntegrityDigest, CommandDelegatingAdapter |
 | **Phase 9** 🔲 | **FIDO2 & Recovery Manager** | FIDO2 绑定验证、数据库解锁增强、恢复密钥包生成与恢复 | Fido2RegistrationService, Fido2AssertionService, RecoveryKeyService |
-| **Phase 10** 🔲 | **Remote Storage Adapter** | SFTP/WebDAV/Cloud/Mail 统一接口、断点续传、凭证安全存储 | SftpAdapter, WebDavAdapter, TransferResumeService |
+| **Phase 10** ✅ | **Remote Storage Adapter** | 命令委托适配器(QProcess 非 shell)、cloud-agnostic(rclone/BaiduPCS-Go/scp/curl)、Protected CustomData 存配置、remote CLI | IRemoteStorageAdapter, CommandDelegatingAdapter, RemoteConfigService |
 | **Phase 11** ✅ | **Lifecycle Manager** | 快照/历史/墓碑清理、数据库压缩、孤儿版本清理 | LifecycleManager, TombstoneCleanupService |
 
 ---
@@ -97,7 +97,7 @@ KeePassXC 本地编译，创建/打开/保存数据库，熟悉代码结构。
 - 约束: 快照存本地专用目录，KDBX 内仅存索引
 - 14 个测试用例覆盖 JSON 往返/文件集成/历史清理/路径解析/SyncEngine 集成
 
-## Phase 8 🔲 — 外部变更检测器
+## Phase 8 ✅ — 外部变更检测器
 
 - `ExternalChangeReport` — file_hash_changed, metadata_mismatch, risky_directory, severity
 - `RepairPlan` — REBUILD_INDEX / RESET_SYNC_BASELINE / MARK_NEW_BRANCH
@@ -109,7 +109,7 @@ KeePassXC 本地编译，创建/打开/保存数据库，熟悉代码结构。
 - `RecoveryKeyEnvelope` — mnemonic (12/24 词), verification_hash
 - 约束: 恢复密钥包不参与主密钥派生，仅为绕过 FIDO2 的授权令牌
 
-## Phase 10 🔲 — 远端存储适配器
+## Phase 10 ✅ — 远端存储适配器
 
 - 统一 `IRemoteStorageAdapter` 接口（testConnection / fetchChanges / uploadChanges / cancelTransfer）
 - 约束: 超 10MB 支持断点续传，默认超时 30s，异步不阻塞 UI
