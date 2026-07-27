@@ -119,6 +119,9 @@ add_unit_test(NAME testlifecyclemanager SOURCES TestLifecycleManager.cpp
 add_unit_test(NAME testexternalchangedetector SOURCES TestExternalChangeDetector.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 
+add_unit_test(NAME testremotestorage SOURCES TestRemoteStorageAdapter.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testmerge SOURCES TestMerge.cpp
         LIBS testsupport ${TEST_LIBRARIES})
 

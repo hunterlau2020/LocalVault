@@ -50,6 +50,7 @@ set(core_SOURCES
         core/PasswordGenerator.cpp
         core/PasswordHealth.cpp
         core/PassphraseGenerator.cpp
+        core/RemoteStorageAdapter.cpp
         core/Resources.cpp
         core/SignalMultiplexer.cpp
         core/SnapshotService.cpp
